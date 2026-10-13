@@ -36,6 +36,7 @@ impl InboxHealthRepository for PgInboxHealth {
             provider: match row.provider.as_str() {
                 "GMAIL" => UserProvider::Gmail,
                 "OUTLOOK" => UserProvider::Outlook,
+                "STALWART" => UserProvider::Stalwart,
                 _ => return Err(MailboxError::Persistence),
             },
             is_sync_active: row.is_sync_active,
@@ -88,7 +89,7 @@ impl<T: MailboxTokenSource, B: MacroEventBroker> InboxHealthGateway for Provider
         freshness: TokenFreshness,
     ) -> Result<AccessToken, EmailApiError> {
         match binding.link.provider {
-            UserProvider::Gmail => {
+            UserProvider::Gmail | UserProvider::Stalwart => {
                 self.gmail
                     .get_access_token(binding.link.id, freshness)
                     .await

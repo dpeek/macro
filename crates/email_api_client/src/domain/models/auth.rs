@@ -1,25 +1,42 @@
+use models_email::email::service::link::UserProvider;
 use std::fmt;
 
 use thiserror::Error;
 
 /// An opaque bearer token used to authorize provider API requests.
 #[derive(Clone, PartialEq, Eq)]
-pub struct AccessToken(String);
+pub struct AccessToken {
+    secret: String,
+    provider: UserProvider,
+}
 
 impl AccessToken {
     /// Wraps an access token without validating provider-specific syntax.
     pub fn new(token: impl Into<String>) -> Self {
-        Self(token.into())
+        Self::for_provider(token, UserProvider::Gmail)
+    }
+
+    /// Wraps a token issued for the linked mailbox's provider.
+    pub fn for_provider(token: impl Into<String>, provider: UserProvider) -> Self {
+        Self {
+            secret: token.into(),
+            provider,
+        }
+    }
+
+    /// Provider that issued this token.
+    pub fn provider(&self) -> UserProvider {
+        self.provider
     }
 
     /// Borrows the token for an outbound provider adapter.
     pub fn expose_secret(&self) -> &str {
-        &self.0
+        &self.secret
     }
 
     /// Consumes this value and returns the token string.
     pub fn into_secret(self) -> String {
-        self.0
+        self.secret
     }
 }
 

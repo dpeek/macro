@@ -138,3 +138,132 @@ pub async fn create_user_profile(
 
     Ok(())
 }
+
+/// Completes Fog provisioning after the auth service has verified the user's
+/// Stalwart identity and mailbox. The profile email must still match the grant.
+#[tracing::instrument(skip(db), err)]
+pub async fn provision_verified_stalwart_user(
+    db: &Pool<Postgres>,
+    fusionauth_user_id: &str,
+    email: &str,
+) -> anyhow::Result<()> {
+    let fusionauth_user_id = macro_uuid::string_to_uuid(fusionauth_user_id)?;
+    let mut transaction = db.begin().await?;
+    let profile = sqlx::query_scalar!(
+        r#"
+        SELECT u.id FROM "User" u
+        JOIN macro_user m ON m.id = u.macro_user_id
+        WHERE m.id = $1 AND LOWER(u.email) = LOWER($2)
+        FOR UPDATE OF u
+        "#,
+        fusionauth_user_id,
+        email,
+    )
+    .fetch_optional(&mut *transaction)
+    .await?
+    .ok_or_else(|| anyhow::anyhow!("verified Stalwart user has no matching Macro profile"))?;
+
+    sqlx::query!(
+        r#"INSERT INTO "RolesOnUsers" ("userId", "roleId")
+           VALUES ($1, 'corporate') ON CONFLICT DO NOTHING"#,
+        profile,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query!(
+        r#"DELETE FROM "RolesOnUsers" WHERE "userId" = $1 AND "roleId" = 'self_serve'"#,
+        profile,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query!(
+        r#"UPDATE "User" SET "tutorialComplete" = TRUE WHERE id = $1"#,
+        profile,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    sqlx::query!(
+        r#"
+        INSERT INTO user_onboarding (user_id, status, skipped, completed_at)
+        VALUES ($1, 'completed', TRUE, NOW())
+        ON CONFLICT (user_id) DO UPDATE SET
+            status = 'completed', skipped = TRUE,
+            completed_at = COALESCE(user_onboarding.completed_at, EXCLUDED.completed_at),
+            updated_at = NOW()
+        "#,
+        profile,
+    )
+    .execute(&mut *transaction)
+    .await?;
+    transaction.commit().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[sqlx::test]
+    async fn stalwart_provisioning_requires_matching_profile_and_is_idempotent(db: Pool<Postgres>) {
+        let user_id = "ca289963-0ab8-4a05-bbb3-148c855c75e1";
+        let email = "david@drumkicks.com";
+        create_user(
+            &db,
+            user_id,
+            "david",
+            email,
+            true,
+            "stripe-stalwart-provisioning-test",
+            None,
+            ["self_serve".to_string()].into_iter().collect(),
+        )
+        .await
+        .unwrap();
+
+        assert!(
+            provision_verified_stalwart_user(&db, user_id, "other@drumkicks.com")
+                .await
+                .is_err()
+        );
+        let profile = format!("macro|{email}");
+        let roles_before = sqlx::query_scalar!(
+            r#"SELECT "roleId" FROM "RolesOnUsers" WHERE "userId" = $1"#,
+            profile,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(roles_before, vec!["self_serve"]);
+
+        provision_verified_stalwart_user(&db, user_id, "David@DrumKicks.com")
+            .await
+            .unwrap();
+        provision_verified_stalwart_user(&db, user_id, email)
+            .await
+            .unwrap();
+        let roles_after = sqlx::query_scalar!(
+            r#"SELECT "roleId" FROM "RolesOnUsers" WHERE "userId" = $1"#,
+            profile,
+        )
+        .fetch_all(&db)
+        .await
+        .unwrap();
+        assert_eq!(roles_after, vec!["corporate"]);
+        let state = sqlx::query!(
+            r#"
+            SELECT u."tutorialComplete" AS tutorial_complete,
+                   o.status, o.skipped, o.completed_at
+            FROM "User" u JOIN user_onboarding o ON o.user_id = u.id
+            WHERE u.id = $1
+            "#,
+            profile,
+        )
+        .fetch_one(&db)
+        .await
+        .unwrap();
+        assert!(state.tutorial_complete);
+        assert_eq!(state.status, "completed");
+        assert!(state.skipped);
+        assert!(state.completed_at.is_some());
+    }
+}

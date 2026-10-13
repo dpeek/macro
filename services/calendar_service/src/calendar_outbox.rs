@@ -27,11 +27,11 @@ struct OutboxRow {
 /// A row lock is held through each SQS publish. A crash after publish but
 /// before commit can duplicate a message, so every consumer remains
 /// idempotent by calendar job id.
-#[tracing::instrument(skip(db, queue, scheduler, retention))]
+#[tracing::instrument(skip(db, queue, schedulers, retention))]
 pub async fn run<R, P>(
     db: PgPool,
     queue: CalendarBackfillQueueClient,
-    scheduler: GoogleCalendarSyncScheduler<R>,
+    schedulers: Vec<GoogleCalendarSyncScheduler<R>>,
     retention: CalendarChangeLogRetention<P>,
     calendar_sync_enabled: bool,
     cancellation_token: tokio_util::sync::CancellationToken,
@@ -48,20 +48,22 @@ pub async fn run<R, P>(
         // unpublished and due syncs never re-arm — enabling the flag later
         // resumes everything without a migration.
         if calendar_sync_enabled {
-            scheduler
-                .run_once(Utc::now())
-                .await
-                .inspect_err(|error| {
-                    tracing::error!(error=?error, "failed to schedule due Google Calendar syncs");
-                })
-                .ok();
-            scheduler
-                .reap_once(Utc::now())
-                .await
-                .inspect_err(|error| {
-                    tracing::error!(error=?error, "failed to reap wedged Google Calendar syncs");
-                })
-                .ok();
+            for scheduler in &schedulers {
+                scheduler
+                    .run_once(Utc::now())
+                    .await
+                    .inspect_err(|error| {
+                        tracing::error!(error=?error, "failed to schedule due calendar syncs");
+                    })
+                    .ok();
+                scheduler
+                    .reap_once(Utc::now())
+                    .await
+                    .inspect_err(|error| {
+                        tracing::error!(error=?error, "failed to reap wedged calendar syncs");
+                    })
+                    .ok();
+            }
             drain_calendar(&db, &queue)
                 .await
                 .inspect_err(|error| {

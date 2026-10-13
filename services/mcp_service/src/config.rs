@@ -26,6 +26,9 @@ maybe_env_vars! {
     /// when unset. Loopback `http` redirect URIs are always allowed and do not
     /// need to be listed.
     pub struct McpAllowedRedirectHosts;
+    /// FusionAuth identity provider used for MCP OAuth sign-in. Defaults to
+    /// Macro's Google Gmail provider when unset.
+    pub struct McpFusionauthIdentityProviderName;
 }
 
 /// Hosts trusted to receive an MCP authorization code when
@@ -91,6 +94,10 @@ env_vars! {
 #[derive(macro_config::MacroConfig)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct Config {
+    /// Disable the OAuth broker for private deployments that authenticate MCP
+    /// requests with short-lived Macro bearer tokens supplied by the harness.
+    #[macro_config_default(true)]
+    pub mcp_oauth_broker_enabled: bool,
     /// Default-off quota admission and prospective usage counting.
     #[macro_config_default(ai_usage::AiUsageEnforcement::Disabled)]
     pub enable_ai_usage_enforcement: ai_usage::AiUsageEnforcement,
@@ -135,6 +142,7 @@ pub struct Config {
     /// Hosts allowed as `https` MCP OAuth redirect destinations. Falls back to
     /// [`DEFAULT_MCP_ALLOWED_REDIRECT_HOSTS`] when unset.
     pub mcp_allowed_redirect_hosts: McpAllowedRedirectHosts,
+    pub mcp_fusionauth_identity_provider_name: McpFusionauthIdentityProviderName,
     pub fusionauth_base_url: FusionauthBaseUrl,
     /// Browser-reachable FusionAuth URL. Falls back to the API base URL when unset.
     pub fusionauth_public_url: FusionauthPublicUrl,

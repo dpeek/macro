@@ -82,7 +82,7 @@ pub fn validate_attachment_edit(
         return Err(AttachmentError::DeliveryConflict);
     }
     let maximum = match facts.provider {
-        UserProvider::Gmail => 18_000_000,
+        UserProvider::Gmail | UserProvider::Stalwart => 18_000_000,
         UserProvider::Outlook => 150_000_000,
     };
     if added_bytes > 0 && facts.total_bytes.saturating_add(added_bytes) > maximum {

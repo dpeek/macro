@@ -1,5 +1,6 @@
 use crate::api::{
     context::TokenContext,
+    internal::stalwart_access_token::verified_access_token,
     utils::{create_access_token_cookie, create_refresh_token_cookie},
 };
 use axum::{
@@ -9,10 +10,28 @@ use axum::{
     response::{IntoResponse, Response},
 };
 use fusionauth::{FusionAuthClient, error::FusionAuthClientError};
-use macro_auth::{error::MacroAuthError, middleware::decode_jwt::JwtValidationArgs};
+use macro_auth::{
+    error::MacroAuthError,
+    middleware::decode_jwt::{JwtValidationArgs, validate_macro_access_token},
+};
+use macro_env_var::optional_read_env_var;
 use model::response::UserTokensResponse;
 use std::sync::Arc;
 use tower_cookies::Cookies;
+
+async fn verify_stalwart_session(
+    auth_client: &FusionAuthClient,
+    fusionauth_user_id: &str,
+    email: &str,
+) -> Result<(), RefreshError> {
+    verified_access_token(auth_client, fusionauth_user_id, email)
+        .await
+        .map_err(|status| match status {
+            StatusCode::NOT_FOUND | StatusCode::FORBIDDEN => RefreshError::Unauthorized,
+            _ => RefreshError::InternalServerError,
+        })?;
+    Ok(())
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum RefreshError {
@@ -65,11 +84,19 @@ pub async fn handler(
     token_context: Extension<TokenContext>,
     cookies: Cookies,
 ) -> Result<Json<UserTokensResponse>, RefreshError> {
+    let stalwart_sso = optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .map_err(|_| RefreshError::InternalServerError)?
+        .is_some();
+
     match macro_auth::middleware::decode_jwt::validate_macro_access_token(
         &token_context.access_token,
         &jwt,
     ) {
-        Ok(_) => {
+        Ok(claims) => {
+            if stalwart_sso {
+                verify_stalwart_session(&auth_client, &claims.fusion_user_id, &claims.email)
+                    .await?;
+            }
             // jwt is valid, return back original tokens
             tracing::trace!("jwt still valid");
             return Ok(Json(UserTokensResponse {
@@ -124,6 +151,12 @@ pub async fn handler(
                 RefreshError::InternalServerError
             }
         })?;
+
+    if stalwart_sso {
+        let claims = validate_macro_access_token(&access_token, &jwt)
+            .map_err(|_| RefreshError::InternalServerError)?;
+        verify_stalwart_session(&auth_client, &claims.fusion_user_id, &claims.email).await?;
+    }
 
     tracing::info!(time_taken=?start_time.elapsed(), "refresh token time");
 

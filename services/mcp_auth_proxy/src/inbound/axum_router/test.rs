@@ -7,7 +7,7 @@ use axum::{
 };
 use tower::ServiceExt;
 
-use super::{health, mcp_router, mount_at_root_and_prefix, oauth_router};
+use super::{health, internal_mcp_router, mcp_router, mount_at_root_and_prefix, oauth_router};
 use crate::test_support::{
     ATTACKER_CODE_VERIFIER, ATTACKER_REDIRECT_URI, Harness, TRUSTED_REDIRECT_URI,
     UPSTREAM_ACCESS_TOKEN, VICTIM_CODE_VERIFIER, code_challenge_for, query_param,
@@ -341,6 +341,23 @@ async fn mcp_router_builds_without_overlapping_routes() {
             StatusCode::OK,
             "{path}"
         );
+    }
+}
+
+#[tokio::test]
+async fn private_mcp_keeps_tools_protected_without_oauth_routes() {
+    let app = internal_mcp_router(
+        JwtValidationArgs::new_testing(),
+        Router::new().route("/", get(ok)),
+    );
+
+    assert_eq!(get_status(app.clone(), "/health").await, StatusCode::OK);
+    assert_eq!(
+        get_status(app.clone(), "/mcp").await,
+        StatusCode::UNAUTHORIZED
+    );
+    for path in ["/authorize", "/register", "/oauth/callback", "/token"] {
+        assert_eq!(get_status(app.clone(), path).await, StatusCode::NOT_FOUND);
     }
 }
 

@@ -21,6 +21,9 @@ pub const GOOGLE_CALENDAR_LIST_SCOPE: &str =
 pub const GOOGLE_CALENDAR_SCOPES: [&str; 2] =
     [GOOGLE_CALENDAR_EVENTS_SCOPE, GOOGLE_CALENDAR_LIST_SCOPE];
 
+/// The Stalwart scope that authorizes native calendar reads and writes.
+pub const STALWART_CALENDARS_SCOPE: &str = "urn:ietf:params:oauth:scope:calendars";
+
 /// The single broad scope Macro requested before narrowing to the two above.
 /// Google keeps a granted scope for the life of the grant, so inboxes connected
 /// before the narrowing still report it; it is what [`GoogleScopeSet::without_calendar`]
@@ -67,7 +70,13 @@ impl GoogleScopeSet {
 
     /// Return whether the complete Macro calendar capability is present.
     pub fn has_calendar_capability(&self) -> bool {
-        GOOGLE_CALENDAR_SCOPES
+        self.has_calendar_capability_for(CalendarProvider::Google)
+    }
+
+    /// Check the scope contract of the selected calendar backend.
+    pub fn has_calendar_capability_for(&self, provider: CalendarProvider) -> bool {
+        provider
+            .required_scopes()
             .iter()
             .all(|scope| self.contains(scope))
     }
@@ -77,10 +86,19 @@ impl GoogleScopeSet {
     /// the two Macro requests, so a grant that carries a broader calendar
     /// scope cannot keep the capability alive.
     pub fn without_calendar(self) -> Self {
+        self.without_calendar_for(CalendarProvider::Google)
+    }
+
+    /// Drop calendar scopes for the selected backend only.
+    pub fn without_calendar_for(self, provider: CalendarProvider) -> Self {
         Self(
             self.0
                 .into_iter()
-                .filter(|scope| !scope.starts_with(GOOGLE_CALENDAR_SCOPE_PREFIX))
+                .filter(|scope| match provider {
+                    CalendarProvider::Google => !scope.starts_with(GOOGLE_CALENDAR_SCOPE_PREFIX),
+                    CalendarProvider::Outlook => true,
+                    CalendarProvider::Stalwart => scope != STALWART_CALENDARS_SCOPE,
+                })
                 .collect(),
         )
     }
@@ -1180,6 +1198,10 @@ pub enum CalendarProvider {
     Google,
     /// Microsoft Graph calendar attached to an Outlook grant.
     Outlook,
+    /// Fog Stalwart's Google-shaped calendar API attached to a Stalwart grant.
+    /// This selects link/token routing; persisted and public calendar identity
+    /// remains Google-compatible.
+    Stalwart,
 }
 impl CalendarProvider {
     /// Parse the owning email domain's stored provider discriminator.
@@ -1187,14 +1209,28 @@ impl CalendarProvider {
         match value {
             "GMAIL" => Some(Self::Google),
             "OUTLOOK" => Some(Self::Outlook),
+            "STALWART" => Some(Self::Stalwart),
             _ => None,
         }
+    }
+    /// Backward-compatible name used by the Google-shaped Stalwart adapter.
+    pub fn from_link_provider(value: &str) -> Option<Self> {
+        Self::from_link(value)
     }
     /// Discriminator used by the authentication service's provider cache.
     pub fn link_provider(self) -> &'static str {
         match self {
             Self::Google => "GMAIL",
             Self::Outlook => "OUTLOOK",
+            Self::Stalwart => "STALWART",
+        }
+    }
+    /// Scopes that qualify a mailbox for calendar polling.
+    pub fn required_scopes(self) -> &'static [&'static str] {
+        match self {
+            Self::Google => &GOOGLE_CALENDAR_SCOPES,
+            Self::Outlook => &[],
+            Self::Stalwart => &[STALWART_CALENDARS_SCOPE],
         }
     }
 }

@@ -114,7 +114,7 @@ pub async fn get_location_handler(
         .unwrap()
 }
 
-/// Signs a document key and returns a CloudFront presigned URL.
+/// Signs a document key and returns a browser-facing presigned URL.
 /// The object key is used as-is for S3 existence verification and
 /// percent-encoded only where it becomes the URL path.
 #[tracing::instrument(skip(state), err)]
@@ -129,6 +129,21 @@ async fn sign_document_key(
         if !exists {
             anyhow::bail!(DOCUMENT_DOES_NOT_EXIST);
         }
+    }
+
+    if macro_aws_config::has_s3_endpoint_override() {
+        let url = state
+            .s3_client
+            .get_document_storage_presigned_url(
+                key,
+                std::time::Duration::from_secs(
+                    state
+                        .config
+                        .document_storage_service_presigned_url_expiry_seconds,
+                ),
+            )
+            .await?;
+        return Ok(LocationResponseData::PresignedUrl(url));
     }
 
     let signed_options = get_cloudfront_signed_options(
@@ -221,6 +236,27 @@ async fn get_docx_urls(
         .await?
     };
     tracing::debug!(elapsed = ?start_shas.elapsed(), "got document shas");
+
+    if macro_aws_config::has_s3_endpoint_override() {
+        let urls = futures::future::try_join_all(shas.iter().map(|sha| async {
+            Ok::<_, anyhow::Error>(PresignedUrl {
+                presigned_url: state
+                    .s3_client
+                    .get_document_storage_presigned_url(
+                        sha,
+                        std::time::Duration::from_secs(
+                            state
+                                .config
+                                .document_storage_service_presigned_url_expiry_seconds,
+                        ),
+                    )
+                    .await?,
+                sha: sha.to_string(),
+            })
+        }))
+        .await?;
+        return Ok(LocationResponseData::PresignedUrls(urls));
+    }
 
     let signed_options = get_cloudfront_signed_options(
         &state

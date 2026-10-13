@@ -457,18 +457,18 @@ pub(crate) async fn delete_draft_message(
         }));
     }
 
-    let deleted_link_id = sqlx::query_scalar!(
+    let deleted_link_id = sqlx::query_scalar::<_, Uuid>(
         r#"
         DELETE FROM email_messages
         WHERE id = $1 AND thread_id = $2 AND link_id = ANY($3) AND is_draft = true AND is_sent = false
-          AND EXISTS (SELECT 1 FROM email_links l WHERE l.id = email_messages.link_id AND l.provider = 'GMAIL')
+          AND EXISTS (SELECT 1 FROM email_links l WHERE l.id = email_messages.link_id AND l.provider IN ('GMAIL','STALWART'))
           AND NOT EXISTS (SELECT 1 FROM email_scheduled_messages WHERE message_id = $1 AND link_id = email_messages.link_id)
         RETURNING link_id
         "#,
-        message_id,
-        thread_db_id,
-        link_ids,
     )
+    .bind(message_id)
+    .bind(thread_db_id)
+    .bind(link_ids)
     .fetch_optional(&mut *tx)
     .await?;
 

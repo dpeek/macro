@@ -1,5 +1,6 @@
 import { useCalendarPager } from '@app/features/calendar/components/CalendarPagerContext';
 import { isCalendarRangeSupported } from '@app/features/calendar/utils/calendar-supported-range';
+import { redirectToEmailAuth } from '@core/auth/email';
 import { useAddInboxFlow } from '@core/email-link';
 import { fireAndForget } from '@core/util/fireAndForget';
 import { useVisibleCalendarsQuery } from '@queries/calendar/calendars';
@@ -99,6 +100,10 @@ export function SetupStatus() {
       state === 'reauth'
         ? links.find((link) => link.needs_reauth)
         : links.find((link) => link.needs_calendar_permission);
+    if (link?.provider === 'STALWART') {
+      redirectToEmailAuth({ idpName: 'stalwart' });
+      return;
+    }
     fireAndForget(
       startAddInbox({
         provider: link?.provider,

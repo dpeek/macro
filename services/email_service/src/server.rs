@@ -8,6 +8,7 @@ use crate::api::{
 use crate::calendar_refresh::ConnectionGatewayCalendarRefresh;
 use crate::calendar_request_gate::RedisCalendarRequestGate;
 use crate::calendar_tokens::CalendarTokenProviderAdapter;
+use crate::mailbox_provider;
 use crate::outbound::email_api::{
     EmailServiceTokenSource, GmailApi, RateBudget, RedisProviderRateLimiter,
 };
@@ -17,7 +18,9 @@ use calendar_events::{
         invitations::CalendarInvitationResolver, mutations::CalendarMutationServiceImpl,
         service::CalendarService,
     },
-    outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
+    outbound::{
+        google::GoogleCalendarClient, pg::PgCalendarRepository, routed::RoutedCalendarClient,
+    },
 };
 use document_storage_service_client::DocumentStorageServiceClient;
 use email::{
@@ -28,7 +31,6 @@ use email::{
     },
     outbound::{EmailPgRepo, GmailTokenProviderImpl},
 };
-use email_api_client::GmailApiClientRepository;
 use entity_access::{domain::service::EntityAccessServiceImpl, outbound::PgAccessRepository};
 use frecency::{domain::services::FrecencyQueryServiceImpl, outbound::postgres::FrecencyPgStorage};
 use macro_auth::middleware::decode_jwt::JwtValidationArgs;
@@ -65,6 +67,17 @@ pub async fn run() -> anyhow::Result<()> {
         .resolve_remote_secrets(env, &secretsmanager_client)
         .await
         .context("expected to be able to resolve config secrets")?;
+    let stalwart_issuer = macro_env_var::optional_read_env_var("FOG_STALWART_OAUTH_ISSUER")?;
+    let stalwart_calendar_api_base = if let Some(issuer) = stalwart_issuer {
+        let url = reqwest::Url::parse(&issuer).context("invalid Stalwart calendar issuer")?;
+        anyhow::ensure!(
+            url.scheme() == "https",
+            "Stalwart calendar issuer must use HTTPS"
+        );
+        Some(format!("{}/calendar/v3", issuer.trim_end_matches('/')))
+    } else {
+        None
+    };
 
     // limiting to max of 200 connections (12.5% of macrodb total) in prod.
     let (min_connections, max_connections): (u32, u32) = match config.environment {
@@ -104,8 +117,8 @@ pub async fn run() -> anyhow::Result<()> {
         AuthServiceUrl::new()?.to_string(),
     );
 
-    let gmail_client = gmail_client::GmailClient::new(config.gmail_gcp_queue.as_ref().to_string());
-    let gmail_api_repository = GmailApiClientRepository::new(gmail_client.clone());
+    let gmail_client = mailbox_provider::client(config.gmail_gcp_queue.to_string());
+    let gmail_api_repository = mailbox_provider::repository(config.gmail_gcp_queue.to_string())?;
 
     let redis_inner_client = redis::Client::open(config.redis_uri.as_ref())
         .inspect(|client| {
@@ -230,13 +243,20 @@ pub async fn run() -> anyhow::Result<()> {
                         auth_service_client.clone(),
                     ),
                 )),
-                google: GoogleCalendarClient::with_gate(
-                    reqwest::Client::builder()
+                google: {
+                    let http = reqwest::Client::builder()
                         .timeout(std::time::Duration::from_secs(30))
                         .build()
-                        .context("failed to build the google calendar mutation http client")?,
-                    RedisCalendarRequestGate::new((*redis_client).clone()),
-                ),
+                        .context("failed to build the calendar mutation http client")?;
+                    let gate = RedisCalendarRequestGate::new((*redis_client).clone());
+                    RoutedCalendarClient::new(
+                        db.clone(),
+                        GoogleCalendarClient::with_gate(http.clone(), gate.clone()),
+                        stalwart_calendar_api_base
+                            .as_deref()
+                            .map(|base| GoogleCalendarClient::with_gate_at_base(http, gate, base)),
+                    )
+                },
             },
             CalendarTokenProviderAdapter::new(redis_conn.clone(), auth_service_client.clone()),
             macro_event_broker.clone(),

@@ -184,8 +184,11 @@ pub fn generate(
     // external network/volume definitions, which the schema can't represent.
     let mut value = serde_yaml::to_value(&compose).context("serializing compose override")?;
     apply_tags(&mut value, mode, instance);
-    if mode.spec().runs_local_infra && !instance.is_default() {
-        set_external_networks_and_volumes(&mut value, instance);
+    if mode.spec().runs_local_infra {
+        if !instance.is_default() {
+            set_external_networks_and_volumes(&mut value, instance);
+        }
+        set_ipv4_only_local_networks(&mut value);
     }
 
     let yaml = serde_yaml::to_string(&value).context("rendering override yaml")?;
@@ -545,6 +548,23 @@ fn set_external_networks_and_volumes(value: &mut Value, instance: &Instance) {
             .collect(),
         ),
     );
+}
+
+/// Keep every Compose-managed local network IPv4-only. Some local services
+/// listen only on IPv4, but Docker publishes their ports on both loopbacks.
+fn set_ipv4_only_local_networks(value: &mut Value) {
+    let networks = value
+        .as_mapping_mut()
+        .expect("compose root is a mapping")
+        .entry("networks".into())
+        .or_insert_with(|| Value::Mapping(serde_yaml::Mapping::new()))
+        .as_mapping_mut()
+        .expect("compose networks is a mapping");
+    for name in ["services", "auth-internal", "default"] {
+        let mut settings = serde_yaml::Mapping::new();
+        settings.insert("enable_ipv6".into(), false.into());
+        networks.insert(name.into(), Value::Mapping(settings));
+    }
 }
 
 /// `!reset null`.

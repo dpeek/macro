@@ -9,7 +9,7 @@ pub struct RedisClient {
     pub inner: redis::Client,
 
     /// Maximum allowed Gmail API quota units within the rate limiting window, for normal operations.
-    /// Gmail API per-user quota is 15,000 units per minute.
+    /// New Gmail API projects have a 6,000-unit per-user minute quota.
     pub rate_limit_units: u32,
 
     /// Maximum allowed Gmail API quota units within the rate limiting window, for backfill. Less

@@ -1,4 +1,6 @@
-export const MACRO_MCP_URL = 'https://mcp-server.macro.com/mcp';
+export const MACRO_MCP_URL =
+  import.meta.env.VITE_MACRO_MCP_URL?.replace(/\/$/, '') ||
+  'https://mcp-server.macro.com/mcp';
 
 export const MACRO_MCP_CONFIG = JSON.stringify(
   {

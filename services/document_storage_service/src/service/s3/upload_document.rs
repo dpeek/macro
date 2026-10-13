@@ -7,7 +7,7 @@ pub(in crate::service::s3) async fn upload_document(
     key: &str,
     byte_stream: ByteStream,
 ) -> anyhow::Result<()> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok(());
     }
 

@@ -679,6 +679,10 @@ async fn main() -> Result<(), Error> {
 }
 
 #[cfg(test)]
+#[path = "fog_m5_bulk_contract.rs"]
+mod fog_m5_bulk_contract;
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use model::document::FileType;

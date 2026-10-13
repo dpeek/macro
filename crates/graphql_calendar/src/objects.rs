@@ -540,7 +540,10 @@ pub enum GraphqlCalendarProvider {
 impl From<CalendarProvider> for GraphqlCalendarProvider {
     fn from(provider: CalendarProvider) -> Self {
         match provider {
-            CalendarProvider::Google => Self::Google,
+            // Stalwart uses the Google-compatible calendar model and is
+            // intentionally exposed as Google until the public schemas gain a
+            // distinct provider identity.
+            CalendarProvider::Google | CalendarProvider::Stalwart => Self::Google,
             CalendarProvider::Outlook => Self::Outlook,
         }
     }

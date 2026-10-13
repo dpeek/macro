@@ -501,11 +501,8 @@ async fn create_user_webhook(ctx: &ApiContext, req: FusionAuthUserWebhook) -> an
 
     // Seed the starter documents (the "Macro how to guide" and the starter
     // tasks it links to, with the guide pinned to the new user's sidebar
-    // favorites), then create a private support channel connecting the new
-    // user with the Macro support team and post the welcome script — which
-    // mentions the guide, so seeding runs first. Fire-and-forget: neither a
-    // failed seeding (retried, then skipped) nor a failed channel creation
-    // may block user creation.
+    // favorites). When enabled, create the support channel afterward because
+    // its welcome message mentions the guide. Neither step blocks signup.
     tokio::spawn({
         let document_storage_service_client = ctx.document_storage_service_client.clone();
         let channel_service = ctx.channel_service.clone();
@@ -514,9 +511,13 @@ async fn create_user_webhook(ctx: &ApiContext, req: FusionAuthUserWebhook) -> an
         let favorites_service = ctx.favorites_service.clone();
         let user_id = user_id.clone();
         let support_channel_name = support_channel_name.clone();
+        let create_support_channel_on_signup = ctx.create_support_channel_on_signup.0;
         async move {
             initialize_starter_docs_with_retries(&document_storage_service_client, &user_id)
                 .await;
+            if !create_support_channel_on_signup {
+                return;
+            }
 
             let owner_id = match MacroUserIdStr::try_from(user_id) {
                 Ok(owner_id) => owner_id,

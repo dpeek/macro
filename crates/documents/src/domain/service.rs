@@ -398,7 +398,15 @@ impl<
         )
     }
 
-    fn make_presigned_url(&self, key: &str) -> anyhow::Result<String> {
+    async fn make_presigned_url(&self, key: &str) -> anyhow::Result<String> {
+        if let Some(url) = self
+            .upload_url_service
+            .get_document_storage_presigned_url(key)
+            .await?
+        {
+            return Ok(url);
+        }
+
         let constructed_url = self.cloudfront_url_for_key(key);
         let options = self.get_signed_options();
 
@@ -431,7 +439,7 @@ impl<
         let document_key =
             build_cloud_storage_bucket_document_key(owner, document_id, document_version_id);
 
-        let signed_url = self.make_presigned_url(&document_key)?;
+        let signed_url = self.make_presigned_url(&document_key).await?;
         Ok(LocationResponseData::PresignedUrl(signed_url))
     }
 
@@ -450,7 +458,7 @@ impl<
         let document_key =
             build_cloud_storage_bucket_document_key(owner, document_id, document_version_id);
 
-        let signed_url = self.make_presigned_url(&document_key)?;
+        let signed_url = self.make_presigned_url(&document_key).await?;
         Ok(LocationResponseData::PresignedUrl(signed_url))
     }
 
@@ -461,7 +469,7 @@ impl<
     ) -> anyhow::Result<LocationResponseData> {
         let document_key = build_docx_to_pdf_converted_document_key(owner, document_id);
 
-        let signed_url = self.make_presigned_url(&document_key)?;
+        let signed_url = self.make_presigned_url(&document_key).await?;
         Ok(LocationResponseData::PresignedUrl(signed_url))
     }
 
@@ -481,6 +489,30 @@ impl<
                 .await
                 .map_err(Into::into)?
         };
+
+        if let Some(first_sha) = shas.first()
+            && let Some(first_url) = self
+                .upload_url_service
+                .get_document_storage_presigned_url(first_sha)
+                .await?
+        {
+            let mut urls = vec![PresignedUrl {
+                presigned_url: first_url,
+                sha: first_sha.to_string(),
+            }];
+            for sha in shas.iter().skip(1) {
+                let url = self
+                    .upload_url_service
+                    .get_document_storage_presigned_url(sha)
+                    .await?
+                    .ok_or_else(|| anyhow!("S3 read URL configuration changed"))?;
+                urls.push(PresignedUrl {
+                    presigned_url: url,
+                    sha: sha.to_string(),
+                });
+            }
+            return Ok(LocationResponseData::PresignedUrls(urls));
+        }
 
         let options = self.get_signed_options();
         let distribution_url = &self.cloudfront_config.distribution_url;

@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT u.id FROM \"User\" u\n        JOIN macro_user m ON m.id = u.macro_user_id\n        WHERE m.id = $1 AND LOWER(u.email) = LOWER($2)\n        FOR UPDATE OF u\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Text"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "eea622191aa62ebe9aef4faa4b2d98f67014668c7bce7f2cd4a8ca4b3895cc18"
+}

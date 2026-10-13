@@ -195,6 +195,14 @@ where
         auth_id: &str,
         macro_id: macro_user_id::user_id::MacroUserIdStr<'_>,
     ) -> Result<Option<crate::domain::models::Link>, EmailErr> {
+        let stalwart = self
+            .email_repo
+            .link_by_fusionauth_and_macro_id(auth_id, macro_id.clone(), UserProvider::Stalwart)
+            .await
+            .map_err(anyhow::Error::from)?;
+        if stalwart.is_some() {
+            return Ok(stalwart);
+        }
         Ok(self
             .email_repo
             .link_by_fusionauth_and_macro_id(auth_id, macro_id, UserProvider::Gmail)

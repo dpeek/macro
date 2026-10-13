@@ -58,6 +58,14 @@ impl<R: InboxCatalogRepository> InboxCatalogService<R> {
                             .next()
                             .is_some_and(|scope| scope.eq_ignore_ascii_case("Calendars.ReadWrite"))
                     }),
+                    UserProvider::Stalwart => {
+                        calendar_events::domain::models::GoogleScopeSet::from_scopes(
+                            facts.granted_scopes.clone(),
+                        )
+                        .has_calendar_capability_for(
+                            calendar_events::domain::models::CalendarProvider::Stalwart,
+                        )
+                    }
                 };
                 InboxCatalogEntry {
                     needs_calendar_permission: facts.calendar_disabled || !has_calendar,

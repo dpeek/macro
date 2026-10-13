@@ -14,7 +14,7 @@ impl MailboxSendClient for GmailApiClientRepository {
     ) -> Result<SentIds, EmailApiError> {
         let mime = request.build_mime()?;
         let sent = self
-            .client
+            .client_for(access_token)?
             .send_message(access_token.expose_secret(), &mime, provider_thread_id)
             .await
             .map_err(map_gmail_error)?;

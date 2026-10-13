@@ -7,6 +7,23 @@ use cool_asserts::assert_matches;
 use super::*;
 
 #[test]
+fn fog_stalwart_login_requires_identity_provider_step() {
+    let result = require_stalwart_login(
+        "https://macro.drumkicks.com/oauth2/authorize?client_id=macro&idp_hint=stalwart&state=opaque",
+    )
+    .unwrap();
+    let query: std::collections::HashMap<_, _> = Url::parse(&result)
+        .unwrap()
+        .query_pairs()
+        .into_owned()
+        .collect();
+    assert_eq!(query.get("client_id").map(String::as_str), Some("macro"));
+    assert_eq!(query.get("idp_hint").map(String::as_str), Some("stalwart"));
+    assert_eq!(query.get("state").map(String::as_str), Some("opaque"));
+    assert_eq!(query.get("prompt").map(String::as_str), Some("login"));
+}
+
+#[test]
 fn allowed_original_urls_are_accepted() {
     for original_url in [
         "macro://login",
@@ -27,6 +44,26 @@ fn allowed_original_urls_are_accepted() {
             is_allowed_original_url(&original_url),
             "{original_url} should be allowed"
         );
+    }
+}
+
+#[test]
+fn configured_frontend_origin_is_allowed_without_trusting_other_hosts() {
+    let frontend = Url::parse("https://macro.drumkicks.com").unwrap();
+    for candidate in [
+        "https://macro.drumkicks.com/app/login",
+        "https://macro.drumkicks.com/app/inbox?view=all",
+    ] {
+        let url = Url::parse(candidate).unwrap();
+        assert!(is_allowed_original_url_for_frontend(&url, &frontend));
+    }
+    for candidate in [
+        "http://macro.drumkicks.com/app/login",
+        "https://macro.drumkicks.com.evil.example/app/login",
+        "https://macro.drumkicks.com:8443/app/login",
+    ] {
+        let url = Url::parse(candidate).unwrap();
+        assert!(!is_allowed_original_url_for_frontend(&url, &frontend));
     }
 }
 

@@ -15,7 +15,7 @@ enum TokenCacheConnection {
     },
 }
 
-use crate::domain::models::{EmailErr, Link};
+use crate::domain::models::{EmailErr, Link, UserProvider};
 use crate::domain::ports::GmailTokenProvider;
 
 /// Adapter implementing [`GmailTokenProvider`] using Redis cache with auth service fallback.
@@ -69,6 +69,14 @@ impl GmailTokenProviderImpl {
 
 impl GmailTokenProvider for GmailTokenProviderImpl {
     async fn fetch_gmail_access_token(&self, link: &Link) -> Result<String, EmailErr> {
+        if link.provider == UserProvider::Stalwart {
+            return self
+                .auth_service_client
+                .get_stalwart_access_token(&link.fusionauth_user_id, link.email_address.0.as_ref())
+                .await
+                .map(|grant| grant.access_token)
+                .map_err(|error| EmailErr::ProviderErr(error.into()));
+        }
         let key = TokenCacheKey::new(
             &link.fusionauth_user_id,
             link.email_address.0.as_ref(),
@@ -85,6 +93,14 @@ impl GmailTokenProvider for GmailTokenProviderImpl {
 
     #[tracing::instrument(skip(self, link), err)]
     async fn fetch_gmail_access_token_no_cache(&self, link: &Link) -> Result<String, EmailErr> {
+        if link.provider == UserProvider::Stalwart {
+            return self
+                .auth_service_client
+                .get_stalwart_access_token(&link.fusionauth_user_id, link.email_address.0.as_ref())
+                .await
+                .map(|grant| grant.access_token)
+                .map_err(|error| EmailErr::ProviderErr(error.into()));
+        }
         let key = TokenCacheKey::new(
             &link.fusionauth_user_id,
             link.email_address.0.as_ref(),

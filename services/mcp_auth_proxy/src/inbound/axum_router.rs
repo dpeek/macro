@@ -326,6 +326,30 @@ where
     mount_at_root_and_prefix(oauth_router(auth_proxy).merge(mcp_route)).layer(mcp_cors_layer())
 }
 
+/// Private MCP deployment: health and Bearer-protected tools, without the
+/// public OAuth broker or dynamic client registration endpoints.
+pub fn internal_mcp_router<S>(jwt_args: JwtValidationArgs, mcp_service: S) -> Router
+where
+    S: tower::Service<axum::http::Request<axum::body::Body>, Error = std::convert::Infallible>
+        + Clone
+        + Send
+        + Sync
+        + 'static,
+    S::Response: axum::response::IntoResponse,
+    S::Future: Send + 'static,
+{
+    let protected_tools =
+        Router::new()
+            .nest_service("/mcp", mcp_service)
+            .route_layer(axum_mw::from_fn_with_state(
+                jwt_args,
+                super::middleware::validate_bearer,
+            ));
+    Router::new()
+        .route("/health", routing::get(health))
+        .merge(protected_tools)
+}
+
 fn mount_at_root_and_prefix(inner: Router) -> Router {
     Router::new()
         .merge(inner.clone())

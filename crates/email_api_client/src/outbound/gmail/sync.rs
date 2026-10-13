@@ -9,7 +9,7 @@ use super::{GmailApiClientRepository, map_gmail_error, map_history_error};
 impl MailboxSyncClient for GmailApiClientRepository {
     async fn get_thread_count(&self, access_token: &AccessToken) -> Result<u64, EmailApiError> {
         let profile = self
-            .client
+            .client_for(access_token)?
             .get_profile(access_token.expose_secret())
             .await
             .map_err(map_gmail_error)?;
@@ -27,7 +27,7 @@ impl MailboxSyncClient for GmailApiClientRepository {
         cursor: &SyncCursor,
     ) -> Result<ChangeBatch, EmailApiError> {
         let history = self
-            .client
+            .client_for(access_token)?
             .get_history(access_token.expose_secret(), cursor.as_str())
             .await
             .map_err(map_history_error)?;

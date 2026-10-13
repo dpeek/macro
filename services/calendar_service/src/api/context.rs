@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use calendar_events::{
     domain::{mutations::CalendarMutationServiceImpl, service::CalendarService},
-    outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
+    outbound::{pg::PgCalendarRepository, routed::RoutedCalendarClient},
 };
 use macro_authorization::{
     MacroAuthJwtValidator, MacroAuthorizationServiceImpl, MacroAuthorizationState,
@@ -39,7 +39,7 @@ pub type SchedulingService = calendar_scheduling::domain::service::Service<
 pub type CalendarMutationSvc = CalendarMutationServiceImpl<
     PgCalendarRepository,
     calendar_events::domain::providers::CalendarProviders<
-        GoogleCalendarClient<RedisCalendarRequestGate>,
+        RoutedCalendarClient<RedisCalendarRequestGate>,
         email_api_client::OutlookApiClientRepository,
     >,
     CalendarTokenProviderAdapter,

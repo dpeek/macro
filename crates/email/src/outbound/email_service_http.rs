@@ -26,6 +26,24 @@ impl EmailServiceHttpClient {
             client: reqwest::Client::new(),
         }
     }
+
+    /// Provision the signed-in user's Stalwart mailbox from the verified SSO
+    /// grant. The endpoint is idempotent and may decline when no grant exists.
+    pub async fn provision_stalwart_inbox(&self, access_token: &str) -> anyhow::Result<()> {
+        let response = self
+            .client
+            .post(format!("{}/stalwart/automatic-link", self.url))
+            .bearer_auth(access_token)
+            .timeout(INIT_TIMEOUT)
+            .send()
+            .await?;
+        let status = response.status();
+        if !status.is_success() {
+            let body = response.text().await.unwrap_or_default();
+            anyhow::bail!("HTTP {status}: {body}");
+        }
+        Ok(())
+    }
 }
 
 fn classify_init_status(status: StatusCode) -> Option<FirstInboxProvisionOutcome> {

@@ -74,10 +74,15 @@ impl GoogleCalendarClient<UnmeteredGate> {
 impl<G: GoogleRequestGate> GoogleCalendarClient<G> {
     /// Construct a client whose requests must pass the supplied quota gate.
     pub fn with_gate(client: Client, gate: G) -> Self {
+        Self::with_gate_at_base(client, gate, GOOGLE_CALENDAR_API)
+    }
+
+    /// Use a Google-shaped calendar contract at the supplied API base.
+    pub fn with_gate_at_base(client: Client, gate: G, api_base: impl Into<String>) -> Self {
         Self {
             client,
             gate,
-            api_base: GOOGLE_CALENDAR_API.into(),
+            api_base: api_base.into(),
         }
     }
 

@@ -185,7 +185,7 @@ where
             TransferPreparation::Pending(plan) => plan,
         };
         let maximum = match plan.destination_provider {
-            UserProvider::Gmail => 18_000_000,
+            UserProvider::Gmail | UserProvider::Stalwart => 18_000_000,
             UserProvider::Outlook => 150_000_000,
         };
         let mut total = plan
@@ -317,7 +317,10 @@ impl<R: DraftTransferRepository, G: DraftRetirementGateway> DraftRetirementServi
             if plan.source_provider_id.is_none() {
                 return Ok(RetirementOutcome::Removed);
             }
-            if plan.source_provider == UserProvider::Gmail {
+            if matches!(
+                plan.source_provider,
+                UserProvider::Gmail | UserProvider::Stalwart
+            ) {
                 return Ok(RetirementOutcome::OriginalRemains);
             }
             let Some(facts) = self.gateway.inspect(&plan).await? else {

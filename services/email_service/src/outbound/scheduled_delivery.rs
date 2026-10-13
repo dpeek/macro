@@ -65,6 +65,7 @@ impl ScheduledDeliveryRepo for ScheduledDeliveryAdapter {
         if !matches!(
             link.provider,
             models_email::service::link::UserProvider::Gmail
+                | models_email::service::link::UserProvider::Stalwart
         ) {
             return Ok(None);
         }

@@ -13,22 +13,29 @@ use crate::domain::{
 #[derive(Clone)]
 pub struct FusionAuthOAuthProvider {
     client: Arc<fusionauth::FusionAuthClient>,
-    google_idp_id: String,
+    identity_provider_id: String,
 }
 
 impl FusionAuthOAuthProvider {
-    /// Creates a provider and resolves the Google identity provider ID.
+    /// Creates a provider and resolves its FusionAuth identity provider ID.
     #[tracing::instrument(skip(client), err)]
-    pub async fn new(client: fusionauth::FusionAuthClient) -> anyhow::Result<Self> {
-        let google_idp_id = client
-            .get_identity_provider_id_by_name("google_gmail")
+    pub async fn new(
+        client: fusionauth::FusionAuthClient,
+        identity_provider_name: &str,
+    ) -> anyhow::Result<Self> {
+        let identity_provider_id = client
+            .get_identity_provider_id_by_name(identity_provider_name)
             .await
-            .context("failed to look up Google Gmail identity provider in FusionAuth")?;
-        tracing::debug!(%google_idp_id, "resolved Google IDP ID from FusionAuth");
+            .with_context(|| {
+                format!(
+                    "failed to look up {identity_provider_name} identity provider in FusionAuth"
+                )
+            })?;
+        tracing::debug!(%identity_provider_id, "resolved MCP identity provider ID from FusionAuth");
 
         Ok(Self {
             client: Arc::new(client),
-            google_idp_id,
+            identity_provider_id,
         })
     }
 }
@@ -37,7 +44,7 @@ impl OAuthProvider for FusionAuthOAuthProvider {
     #[tracing::instrument(skip(self), err)]
     fn construct_authorize_url(&self, state: &str) -> anyhow::Result<String> {
         self.client.construct_oauth2_authorize_url(
-            &self.google_idp_id,
+            &self.identity_provider_id,
             None,
             Some(state.to_owned()),
         )

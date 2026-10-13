@@ -12,6 +12,7 @@ pub enum UserProvider {
     Gmail,
     /// Microsoft Outlook and Microsoft 365.
     Outlook,
+    Stalwart,
 }
 
 impl UserProvider {
@@ -19,6 +20,7 @@ impl UserProvider {
         match self {
             UserProvider::Gmail => "GMAIL",
             UserProvider::Outlook => "OUTLOOK",
+            UserProvider::Stalwart => "STALWART",
         }
     }
 }

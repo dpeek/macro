@@ -4,8 +4,12 @@ use std::time::Duration;
 
 use anyhow::Context;
 use calendar_events::{
-    domain::{mutations::CalendarMutationServiceImpl, service::CalendarService},
-    outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
+    domain::{
+        models::CalendarProvider, mutations::CalendarMutationServiceImpl, service::CalendarService,
+    },
+    outbound::{
+        google::GoogleCalendarClient, pg::PgCalendarRepository, routed::RoutedCalendarClient,
+    },
 };
 use calendar_service::api::context::{ApiContext, AuthorizationService};
 use calendar_service::backfill_queue::CalendarBackfillQueueClient;
@@ -50,6 +54,17 @@ async fn main() -> anyhow::Result<()> {
         .resolve_remote_secrets(env, &secretsmanager_client)
         .await
         .context("expected to be able to resolve config secrets")?;
+    let stalwart_issuer = macro_env_var::optional_read_env_var("FOG_STALWART_OAUTH_ISSUER")?;
+    let stalwart_calendar_api_base = if let Some(issuer) = stalwart_issuer {
+        let url = reqwest::Url::parse(&issuer).context("invalid Stalwart calendar issuer")?;
+        anyhow::ensure!(
+            url.scheme() == "https",
+            "Stalwart calendar issuer must use HTTPS"
+        );
+        Some(format!("{}/calendar/v3", issuer.trim_end_matches('/')))
+    } else {
+        None
+    };
 
     let (min_connections, max_connections): (u32, u32) = match config.environment {
         Environment::Production => (3, 20),
@@ -124,12 +139,22 @@ async fn main() -> anyhow::Result<()> {
     );
 
     // Sync scheduler + calendar outbox drain.
+    let mut schedulers = vec![
+        calendar_events::domain::service::GoogleCalendarSyncScheduler::new(
+            PgCalendarRepository::with_provider(db.clone(), CalendarProvider::Google),
+        ),
+    ];
+    if stalwart_calendar_api_base.is_some() {
+        schedulers.push(
+            calendar_events::domain::service::GoogleCalendarSyncScheduler::new(
+                PgCalendarRepository::with_provider(db.clone(), CalendarProvider::Stalwart),
+            ),
+        );
+    }
     worker_tracker.spawn(calendar_service::calendar_outbox::run(
         db.clone(),
         backfill_queue_client,
-        calendar_events::domain::service::GoogleCalendarSyncScheduler::new(
-            PgCalendarRepository::new(db.clone()),
-        ),
+        schedulers,
         calendar_events::domain::changes::CalendarChangeLogRetention::new(
             PgCalendarRepository::new(db.clone()),
         ),
@@ -157,6 +182,7 @@ async fn main() -> anyhow::Result<()> {
             calendar_watch_config(),
             config.calendar_sync_enabled,
             config.calendar_team_sharing_enabled,
+            stalwart_calendar_api_base.as_deref(),
         );
         let cancellation_token = worker_cancellation_token.clone();
         worker_tracker.spawn(async move {
@@ -249,13 +275,20 @@ async fn main() -> anyhow::Result<()> {
             PgCalendarRepository::new(db.clone()),
             calendar_events::domain::providers::CalendarProviders {
                 outlook: outlook_provider,
-                google: GoogleCalendarClient::with_gate(
-                    reqwest::Client::builder()
+                google: {
+                    let http = reqwest::Client::builder()
                         .timeout(Duration::from_secs(30))
                         .build()
-                        .context("failed to build the google calendar mutation http client")?,
-                    RedisCalendarRequestGate::new(rate_limiter),
-                ),
+                        .context("failed to build the calendar mutation http client")?;
+                    let gate = RedisCalendarRequestGate::new(rate_limiter);
+                    RoutedCalendarClient::new(
+                        db.clone(),
+                        GoogleCalendarClient::with_gate(http.clone(), gate.clone()),
+                        stalwart_calendar_api_base
+                            .as_deref()
+                            .map(|base| GoogleCalendarClient::with_gate_at_base(http, gate, base)),
+                    )
+                },
             },
             CalendarTokenProviderAdapter::new(redis_conn, Arc::new(auth_service_client)),
             macro_event_broker.clone(),
@@ -302,8 +335,9 @@ async fn main() -> anyhow::Result<()> {
             calendar_mutation_service.clone(),
             meeting_links.clone(),
             match config.environment {
-                Environment::Production => Some("https://macro.com".into()),
-                Environment::Develop => Some("https://dev.macro.com".into()),
+                Environment::Production | Environment::Develop => {
+                    Some(AppServiceUrl::new()?.to_string())
+                }
                 Environment::Local => None,
             },
         ),

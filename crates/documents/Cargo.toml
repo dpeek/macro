@@ -207,6 +207,8 @@ non_empty = { path = "../non_empty" }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+reqwest = { workspace = true }
+sha2 = { workspace = true }
 channel_sender = { path = "../channel_sender" }
 messages = { path = "../messages", features = ["ports", "test-utils"] }
 bot_id = { path = "../bot_id", features = ["test-utils"] }

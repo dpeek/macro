@@ -148,6 +148,7 @@ redis = { workspace = true, features = [
 ] }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["stream"] }
+jsonwebtoken = { workspace = true }
 rootcause = { workspace = true }
 s3_client = { path = "../../crates/s3_client" }
 schemars = { workspace = true }

@@ -119,6 +119,14 @@ fn visible_calendar_maps_its_link() {
 }
 
 #[test]
+fn stalwart_calendar_uses_google_compatible_public_identity() {
+    assert_eq!(
+        GraphqlCalendarProvider::from(CalendarProvider::Stalwart),
+        GraphqlCalendarProvider::Google
+    );
+}
+
+#[test]
 fn event_mapping_preserves_teams_and_per_calendar_source_content() {
     let mut event = crate::test_fixtures::series_event();
     event.conference_provider = Some(ConferenceProvider::MicrosoftTeams);

@@ -19,7 +19,9 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         key: Uuid,
     ) -> Result<Vec<String>, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => self.google.delete_created_event(token, target, key).await,
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
+                self.google.delete_created_event(token, target, key).await
+            }
             CalendarProvider::Outlook => {
                 self.outlook.delete_created_event(token, target, key).await
             }
@@ -32,7 +34,9 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         draft: &CalendarEventDraft,
     ) -> Result<CalendarEventUpsert, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => self.google.create_event(access_token, target, draft).await,
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
+                self.google.create_event(access_token, target, draft).await
+            }
             CalendarProvider::Outlook => {
                 self.outlook.create_event(access_token, target, draft).await
             }
@@ -46,7 +50,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         patch: &CalendarEventPatch,
     ) -> Result<Option<CalendarEventUpsert>, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .update_event(access_token, target, provider_event_id, patch)
                     .await
@@ -67,7 +71,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         patch: &CalendarEventPatch,
     ) -> Result<ProviderInstanceUpdateOutcome, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .update_event_instance(
                         access_token,
@@ -98,7 +102,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         provider_event_id: &str,
     ) -> Result<(), CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .delete_event(access_token, target, provider_event_id)
                     .await
@@ -118,7 +122,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         original_start: &str,
     ) -> Result<ProviderSeriesMutationOutcome, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .delete_event_instance(
                         access_token,
@@ -148,7 +152,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         original_start: &str,
     ) -> Result<ProviderSeriesMutationOutcome, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .truncate_recurring_event(
                         access_token,
@@ -180,7 +184,7 @@ impl<G: CalendarMutationProvider, O: CalendarMutationProvider> CalendarMutationP
         scope: &CalendarRsvpScope,
     ) -> Result<ProviderRsvpOutcome, CalendarProviderError> {
         match target.provider {
-            CalendarProvider::Google => {
+            CalendarProvider::Google | CalendarProvider::Stalwart => {
                 self.google
                     .rsvp_event(
                         access_token,

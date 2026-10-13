@@ -18,7 +18,9 @@ use crate::domain::service::InstallationTokenService;
 mod test;
 
 const GITHUB_API_BASE_URL: &str = "https://api.github.com";
-const READ_PERMISSIONS: &[(&str, &str)] = &[("pull_requests", "read")];
+// GitHub accepts pull-request metadata with pull_requests alone, but its diff
+// media type also requires contents access for an installation token.
+const READ_PERMISSIONS: &[(&str, &str)] = &[("pull_requests", "read"), ("contents", "read")];
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(60);
 
 /// GitHub REST adapter for a pull request's diff.

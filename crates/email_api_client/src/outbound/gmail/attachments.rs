@@ -12,7 +12,7 @@ impl MailboxAttachmentClient for GmailApiClientRepository {
         provider_message_id: &str,
         provider_attachment_id: &str,
     ) -> Result<Vec<u8>, EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .get_attachment_data(
                 access_token.expose_secret(),
                 provider_message_id,

@@ -32,9 +32,9 @@ use crate::domain::{
         CalendarReminderFiring, CalendarSyncStatus, CalendarWatchRelease, ConferenceProvider,
         DisconnectedCalendar, DueCalendarReminder, EventReminderOverride, EventReminders,
         EventStart, EventStatus, EventTime, EventTransparency, EventType, EventVisibility,
-        GOOGLE_CALENDAR_SCOPES, GoogleCalendarSyncSnapshot, GoogleScopeSet, GoogleWatchChannel,
-        OccurrenceException, OccurrenceListing, OccurrenceRange, ProviderCalendar,
-        StoredGoogleCalendar, TeamOutOfOffice, VisibleCalendar, is_system_calendar,
+        GoogleCalendarSyncSnapshot, GoogleScopeSet, GoogleWatchChannel, OccurrenceException,
+        OccurrenceListing, OccurrenceRange, ProviderCalendar, StoredGoogleCalendar,
+        TeamOutOfOffice, VisibleCalendar, is_system_calendar,
     },
     ports::{
         CalendarBackfillRepository, CalendarEventChange, CalendarEventWrite,
@@ -47,12 +47,26 @@ use crate::domain::{
 #[derive(Clone)]
 pub struct PgCalendarRepository {
     pool: PgPool,
+    provider: CalendarProvider,
 }
 
 impl PgCalendarRepository {
     /// Construct a repository from the shared MacroDB pool.
     pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+        Self::with_provider(pool, CalendarProvider::Google)
+    }
+
+    /// Construct a repository for the selected calendar backend.
+    pub fn with_provider(pool: PgPool, provider: CalendarProvider) -> Self {
+        Self { pool, provider }
+    }
+
+    fn required_scopes(&self) -> Vec<String> {
+        self.provider
+            .required_scopes()
+            .iter()
+            .map(|scope| (*scope).to_owned())
+            .collect()
     }
 
     async fn persist_google_backfill_failure(
@@ -74,7 +88,7 @@ impl PgCalendarRepository {
                 ("failed", "reauth_required", Some(Utc::now()), false)
             }
         };
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let mut tx = self.pool.begin().await.map_err(report)?;
 
         // Incremental grant application locks the inbox before its jobs. Keep
@@ -316,6 +330,9 @@ struct VisibleCalendarRow {
 }
 
 fn visible_calendar(row: VisibleCalendarRow) -> VisibleCalendar {
+    // Stalwart calendar accounts are persisted as `google`: their public
+    // capabilities and wire model are Google-compatible, while routing back
+    // to Stalwart is resolved from the owning email link.
     let outlook = row.provider == "outlook";
     VisibleCalendar {
         provider: if outlook {
@@ -500,6 +517,16 @@ impl CalendarRepository for PgCalendarRepository {
         .await
         .map_err(report)?;
 
+        let link_provider: String =
+            sqlx::query_scalar("SELECT provider::text FROM email_links WHERE id = $1")
+                .bind(email_link_id)
+                .fetch_one(&mut *tx)
+                .await
+                .map_err(report)?;
+        let provider = CalendarProvider::from_link_provider(&link_provider).ok_or_else(|| {
+            rootcause::report!("unsupported calendar link provider: {link_provider}")
+        })?;
+
         // The user's own opt-out outranks whatever Google reports. Consent
         // requests carry `include_granted_scopes=true`, so a plain Gmail
         // reconnect hands back the calendar scopes of an earlier grant; only a
@@ -507,19 +534,19 @@ impl CalendarRepository for PgCalendarRepository {
         let clear_opt_out = matches!(intent, CalendarGrantIntent::CalendarRequested);
         let calendar_opted_out = row.calendar_disabled_at.is_some() && !clear_opt_out;
         let scopes = if calendar_opted_out {
-            scopes.without_calendar()
+            scopes.without_calendar_for(provider)
         } else {
             scopes
         };
 
         let old_scopes = GoogleScopeSet::from_scopes(row.granted_scopes);
-        let had_calendar_capability = old_scopes.has_calendar_capability();
+        let had_calendar_capability = old_scopes.has_calendar_capability_for(provider);
         let changed = old_scopes != scopes;
         if !changed {
             if clear_opt_out {
                 clear_calendar_opt_out_tx(&mut tx, email_link_id).await?;
             }
-            let jobs = if scopes.has_calendar_capability() {
+            let jobs = if scopes.has_calendar_capability_for(provider) {
                 retry_failed_backfills_tx(&mut tx, email_link_id, row.grant_version).await?
             } else {
                 Vec::new()
@@ -559,7 +586,7 @@ impl CalendarRepository for PgCalendarRepository {
 
         let mut jobs = Vec::new();
         let mut log = ChangeLogBatch::default();
-        let has_calendar_capability = scopes.has_calendar_capability();
+        let has_calendar_capability = scopes.has_calendar_capability_for(provider);
         if had_calendar_capability && !has_calendar_capability {
             disable_calendar_capability_tx(&mut tx, &mut log, email_link_id).await?;
         }
@@ -707,8 +734,11 @@ impl CalendarRepository for PgCalendarRepository {
         })
         .collect();
 
+        let provider = CalendarProvider::from_link_provider(&row.provider).ok_or_else(|| {
+            rootcause::report!("unsupported calendar link provider: {}", row.provider)
+        })?;
         let granted_scopes = GoogleScopeSet::from_scopes(row.granted_scopes)
-            .without_calendar()
+            .without_calendar_for(provider)
             .into_vec();
         let grant_version = sqlx::query_scalar!(
             r#"
@@ -802,8 +832,14 @@ impl CalendarRepository for PgCalendarRepository {
                         "Google calendar event fence does not match its connected inbox"
                     ));
                 }
-                fence_google_mutation_tx(&mut tx, key, lease_token, Some(source.account_id))
-                    .await?;
+                fence_google_mutation_tx(
+                    &mut tx,
+                    &self.required_scopes(),
+                    key,
+                    lease_token,
+                    Some(source.account_id),
+                )
+                .await?;
                 upsert
             }
             CalendarEventWrite::UserMutation(upsert) => {
@@ -1424,7 +1460,14 @@ impl CalendarRepository for PgCalendarRepository {
         calendar: ProviderCalendar,
     ) -> Result<StoredGoogleCalendar, Report> {
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
         let mut log = ChangeLogBatch::default();
         let (calendar, team_ooo_changed) = upsert_calendar_tx(
             &mut tx,
@@ -1451,7 +1494,14 @@ impl CalendarRepository for PgCalendarRepository {
         let mut retired = Vec::new();
         let mut log = ChangeLogBatch::default();
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
         let previously_verified =
             source_access::snapshot_is_verified(&mut tx, account_id, sync.calendar_id).await?;
 
@@ -1636,7 +1686,14 @@ impl CalendarRepository for PgCalendarRepository {
         message: &str,
     ) -> Result<(), Report> {
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
         let badged_before = visible_calendar_sync_error_tx(&mut tx, calendar_id).await?;
         let failures = sqlx::query_scalar!(
             r#"
@@ -1681,7 +1738,14 @@ impl CalendarRepository for PgCalendarRepository {
         channel: GoogleWatchChannel,
     ) -> Result<(), Report> {
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
         sqlx::query!(
             r#"
             UPDATE calendars
@@ -1715,7 +1779,14 @@ impl CalendarRepository for PgCalendarRepository {
         calendar_id: Uuid,
     ) -> Result<(), Report> {
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
         sqlx::query!(
             r#"
             UPDATE calendars
@@ -1760,7 +1831,7 @@ impl CalendarRepository for PgCalendarRepository {
 
     #[tracing::instrument(skip(self), err)]
     async fn schedule_google_sync_for_link(&self, email_link_id: Uuid) -> Result<bool, Report> {
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let scheduled = sqlx::query_scalar!(
             r#"
             WITH due AS (
@@ -1813,7 +1884,14 @@ impl CalendarRepository for PgCalendarRepository {
         let mut retired = Vec::new();
         let mut log = ChangeLogBatch::default();
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, Some(account_id)).await?;
+        fence_google_mutation_tx(
+            &mut tx,
+            &self.required_scopes(),
+            key,
+            lease_token,
+            Some(account_id),
+        )
+        .await?;
 
         let affected_event_ids = sqlx::query_scalar!(
             r#"
@@ -2344,7 +2422,7 @@ impl CalendarRepository for PgCalendarRepository {
 impl GoogleCalendarSyncRepository for PgCalendarRepository {
     #[tracing::instrument(skip(self), err)]
     async fn schedule_due_google_syncs(&self, due_before: DateTime<Utc>) -> Result<usize, Report> {
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let due_count = sqlx::query_scalar!(
             r#"
             WITH due AS (
@@ -2393,7 +2471,7 @@ impl GoogleCalendarSyncRepository for PgCalendarRepository {
         &self,
         stalled_before: DateTime<Utc>,
     ) -> Result<usize, Report> {
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let reaped = sqlx::query_scalar!(
             r#"
             WITH wedged AS (
@@ -2456,11 +2534,11 @@ impl GoogleCalendarSyncRepository for PgCalendarRepository {
 
 async fn fence_google_mutation_tx(
     tx: &mut Transaction<'_, Postgres>,
+    required_scopes: &[String],
     key: CalendarBackfillJobKey,
     lease_token: Uuid,
     account_id: Option<Uuid>,
 ) -> Result<(), Report> {
-    let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
     let fenced_job = sqlx::query_scalar!(
         r#"
         SELECT job.id
@@ -2492,7 +2570,7 @@ async fn fence_google_mutation_tx(
         key.email_link_id,
         lease_token,
         account_id,
-        &required_scopes,
+        required_scopes,
     )
     .fetch_optional(&mut **tx)
     .await
@@ -2718,7 +2796,7 @@ impl CalendarBackfillRepository for PgCalendarRepository {
         key: CalendarBackfillJobKey,
     ) -> Result<CalendarBackfillClaim, Report> {
         let lease_token = Uuid::now_v7();
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let mut tx = self.pool.begin().await.map_err(report)?;
         let claimed_account_id = sqlx::query_scalar!(
             r#"
@@ -2817,7 +2895,7 @@ impl CalendarBackfillRepository for PgCalendarRepository {
         lease_token: Uuid,
     ) -> Result<(), Report> {
         let mut tx = self.pool.begin().await.map_err(report)?;
-        fence_google_mutation_tx(&mut tx, key, lease_token, None).await?;
+        fence_google_mutation_tx(&mut tx, &self.required_scopes(), key, lease_token, None).await?;
         sqlx::query!(
             r#"
             UPDATE calendar_accounts
@@ -2839,7 +2917,7 @@ impl CalendarBackfillRepository for PgCalendarRepository {
         key: CalendarBackfillJobKey,
         lease_token: Uuid,
     ) -> Result<(), Report> {
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         loop {
             tokio::time::sleep(std::time::Duration::from_secs(30)).await;
             let updated = sqlx::query!(
@@ -2882,7 +2960,7 @@ impl CalendarBackfillRepository for PgCalendarRepository {
         key: CalendarBackfillJobKey,
         lease_token: Uuid,
     ) -> Result<(), Report> {
-        let required_scopes = GOOGLE_CALENDAR_SCOPES.map(str::to_owned);
+        let required_scopes = self.required_scopes();
         let mut tx = self.pool.begin().await.map_err(report)?;
         let completed = sqlx::query!(
             r#"
@@ -3865,7 +3943,12 @@ async fn fetch_calendar_reminder_context(
     .await
     .map_err(report)?;
     Ok(row.map(|row| CalendarReminderContext {
-        provider: if row.provider=="outlook" {CalendarProvider::Outlook} else {CalendarProvider::Google},
+        provider: match row.provider.as_str() {
+            "google" => CalendarProvider::Google,
+            "outlook" => CalendarProvider::Outlook,
+            "stalwart" => CalendarProvider::Stalwart,
+            _ => CalendarProvider::Google,
+        },
         time_zone: row.time_zone,
         // This feeds the firing schedule: a malformed value silently drops
         // every default reminder on the calendar, so it must leave a trace.

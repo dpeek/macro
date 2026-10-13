@@ -200,8 +200,21 @@ async fn export_docx_document(state: &ApiContext, document_id: &str) -> anyhow::
 }
 
 async fn sign_docx_url(state: &ApiContext, key: &str) -> anyhow::Result<String> {
-    let encoded_key = urlencoding::encode(key);
+    if macro_aws_config::has_s3_endpoint_override() {
+        return state
+            .s3_client
+            .get_document_storage_presigned_url(
+                key,
+                std::time::Duration::from_secs(
+                    state
+                        .config
+                        .document_storage_service_presigned_url_expiry_seconds,
+                ),
+            )
+            .await;
+    }
 
+    let encoded_key = urlencoding::encode(key);
     let signed_options = get_cloudfront_signed_options(
         &state
             .config

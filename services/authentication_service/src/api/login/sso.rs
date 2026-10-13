@@ -1,10 +1,11 @@
-use crate::api::context::ApiContext;
+use crate::api::{context::ApiContext, utils::default_redirect_url};
 use axum::{
     Json,
     extract::{Query, State},
     http::StatusCode,
     response::{IntoResponse, Redirect, Response},
 };
+use macro_env_var::optional_read_env_var;
 use model::response::ErrorResponse;
 use serde_utils::urlencode::UrlEncoded;
 use url::Url;
@@ -36,15 +37,27 @@ pub(crate) struct LoginQueryParams {
 }
 
 pub(crate) fn is_allowed_original_url(url: &Url) -> bool {
+    is_allowed_original_url_for_frontend(url, &default_redirect_url())
+}
+
+fn is_allowed_original_url_for_frontend(url: &Url, frontend: &Url) -> bool {
     match url.scheme() {
         // The app owns the custom scheme and handles all macro URI routes itself.
         "macro" => true,
         "tauri" => url.host_str() == Some("localhost"),
         "http" => matches!(url.host_str(), Some("localhost" | "tauri.localhost")),
-        "https" => matches!(
-            url.host_str(),
-            Some("localhost" | "tauri.localhost" | "dev.macro.com" | "macro.com" | "www.macro.com")
-        ),
+        "https" => {
+            matches!(
+                url.host_str(),
+                Some(
+                    "localhost"
+                        | "tauri.localhost"
+                        | "dev.macro.com"
+                        | "macro.com"
+                        | "www.macro.com"
+                )
+            ) || (frontend.scheme() == "https" && url.origin() == frontend.origin())
+        }
         _ => false,
     }
 }
@@ -97,6 +110,14 @@ pub async fn handler(
         is_mobile,
         referral_code,
     }) = query;
+
+    let fog_stalwart_sso = optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .ok()
+        .flatten()
+        .is_some();
+    if fog_stalwart_sso && (idp_name.as_deref() != Some("stalwart") || idp_id.is_some()) {
+        return Err((StatusCode::FORBIDDEN, "Sign in with Stalwart").into_response());
+    }
 
     let original_url = original_url.map(|url| url.0);
     if let Some(url) = original_url
@@ -201,8 +222,24 @@ pub async fn handler(
             )
                 .into_response()
         })?;
+    let sso_url = if fog_stalwart_sso {
+        require_stalwart_login(&sso_url).map_err(|e| {
+            tracing::error!(error=?e, "unable to require Stalwart sign-in");
+            StatusCode::INTERNAL_SERVER_ERROR.into_response()
+        })?
+    } else {
+        sso_url
+    };
 
     tracing::info!(sso_url=%sso_url, "SSO URL");
 
     Ok(Redirect::temporary(&sso_url).into_response())
+}
+
+fn require_stalwart_login(sso_url: &str) -> Result<String, url::ParseError> {
+    let mut url = Url::parse(sso_url)?;
+    // idp_hint alone may use a pre-existing FusionAuth SSO session and skip
+    // Stalwart entirely. Ask FusionAuth to visit Stalwart for this sign-in.
+    url.query_pairs_mut().append_pair("prompt", "login");
+    Ok(url.into())
 }

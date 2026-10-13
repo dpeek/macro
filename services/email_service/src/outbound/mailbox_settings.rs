@@ -22,7 +22,9 @@ where
 {
     async fn labels(&self, mailbox: SettingsMailbox) -> Result<Vec<Label>, EmailApiError> {
         match mailbox.provider {
-            UserProvider::Gmail => self.gmail.list_labels(mailbox.key.link_id).await,
+            UserProvider::Gmail | UserProvider::Stalwart => {
+                self.gmail.list_labels(mailbox.key.link_id).await
+            }
             UserProvider::Outlook => self.outlook.labels(access(mailbox)).await,
         }
     }
@@ -32,7 +34,9 @@ where
         name: &str,
     ) -> Result<Label, EmailApiError> {
         match mailbox.provider {
-            UserProvider::Gmail => self.gmail.create_label(mailbox.key.link_id, name).await,
+            UserProvider::Gmail | UserProvider::Stalwart => {
+                self.gmail.create_label(mailbox.key.link_id, name).await
+            }
             UserProvider::Outlook => self.outlook.create_label(access(mailbox), name).await,
         }
     }
@@ -42,7 +46,9 @@ where
         name: &str,
     ) -> Result<(), EmailApiError> {
         match mailbox.provider {
-            UserProvider::Gmail => self.gmail.delete_label(mailbox.key.link_id, name).await,
+            UserProvider::Gmail | UserProvider::Stalwart => {
+                self.gmail.delete_label(mailbox.key.link_id, name).await
+            }
             UserProvider::Outlook => self.outlook.delete_label(access(mailbox), name).await,
         }
     }

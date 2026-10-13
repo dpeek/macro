@@ -5,11 +5,11 @@ use crate::domain::{
         AttendeeResponseStatus, CalendarAttendee, CalendarBackfillClaim,
         CalendarBackfillFailureDisposition, CalendarBackfillFailureOutcome, CalendarBackfillJobKey,
         CalendarCreationTarget, CalendarEvent, CalendarEventMutationTarget, CalendarEventSource,
-        CalendarOccurrence, CalendarSyncStatus, DisconnectedCalendar, EventReminders, EventStatus,
-        EventTime, EventTransparency, EventType, EventVisibility, GOOGLE_CALENDAR_FULL_SCOPE,
-        GOOGLE_CALENDAR_SCOPES, GoogleBackfillRunReport, GoogleCalendarSyncSnapshot,
-        GoogleEventSyncBatch, GoogleWatchChannel, GoogleWatchConfig, ProviderCalendar,
-        ProviderEventSource, StoredGoogleCalendar,
+        CalendarOccurrence, CalendarProvider, CalendarSyncStatus, DisconnectedCalendar,
+        EventReminders, EventStatus, EventTime, EventTransparency, EventType, EventVisibility,
+        GOOGLE_CALENDAR_FULL_SCOPE, GOOGLE_CALENDAR_SCOPES, GoogleBackfillRunReport,
+        GoogleCalendarSyncSnapshot, GoogleEventSyncBatch, GoogleWatchChannel, GoogleWatchConfig,
+        ProviderCalendar, ProviderEventSource, STALWART_CALENDARS_SCOPE, StoredGoogleCalendar,
     },
     ports::{
         CalendarBackfillRepository, CalendarEventWrite, CalendarProviderError,
@@ -392,6 +392,20 @@ fn complete_scope_capability_requires_every_requested_scope() {
             "{scope} alone must not read as the complete capability"
         );
     }
+}
+
+#[test]
+fn calendar_scope_capability_is_provider_specific() {
+    let stalwart = GoogleScopeSet::parse(STALWART_CALENDARS_SCOPE);
+    assert!(stalwart.has_calendar_capability_for(CalendarProvider::Stalwart));
+    assert!(!stalwart.has_calendar_capability_for(CalendarProvider::Google));
+
+    let google = GoogleScopeSet::parse(&GOOGLE_CALENDAR_SCOPES.join(" "));
+    assert!(google.has_calendar_capability_for(CalendarProvider::Google));
+    assert!(!google.has_calendar_capability_for(CalendarProvider::Stalwart));
+
+    let stripped = stalwart.without_calendar_for(CalendarProvider::Stalwart);
+    assert!(!stripped.has_calendar_capability_for(CalendarProvider::Stalwart));
 }
 
 /// An inbox connected before Macro narrowed its request reports only the broad

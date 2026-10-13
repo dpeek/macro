@@ -18,7 +18,7 @@ pub(in crate::service::s3) async fn put_internal_presigned_url(
     bucket: &str,
     key: &str,
 ) -> anyhow::Result<String> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok("fake".to_string());
     }
     let presigned = client
@@ -40,15 +40,16 @@ pub(in crate::service::s3) async fn get_presigned_url(
     client: &s3::Client,
     bucket: &str,
     key: &str,
+    expiry: Duration,
 ) -> anyhow::Result<String> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok("fake".to_string());
     }
     let presigned = client
         .get_object()
         .bucket(bucket)
         .key(key)
-        .presigned(PresigningConfig::expires_in(EXPIRY)?)
+        .presigned(PresigningConfig::expires_in(expiry)?)
         .await?;
     Ok(macro_aws_config::transform_aws_url(presigned.uri()))
 }

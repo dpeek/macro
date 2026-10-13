@@ -22,6 +22,38 @@ afterEach(() => {
   vi.resetModules();
 });
 
+it('uses a configured gateway origin in a production bundle', async () => {
+  vi.stubEnv('MODE', 'production');
+  vi.stubEnv('VITE_GATEWAY_ORIGIN', 'https://self-hosted.example/');
+  vi.resetModules();
+  const { SERVER_HOSTS } = await import('./servers');
+  expect(SERVER_HOSTS['auth-service']).toBe('https://self-hosted.example/auth');
+  expect(SERVER_HOSTS['document-storage-service']).toBe(
+    'https://self-hosted.example/dss'
+  );
+  expect(SERVER_HOSTS['connection-gateway']).toBe(
+    'wss://self-hosted.example/connection-gateway'
+  );
+});
+
+it('uses a configured static-file base URL in a production bundle', async () => {
+  vi.stubEnv('MODE', 'production');
+  vi.stubEnv(
+    'VITE_STATIC_FILE_PUBLIC_URL',
+    'https://self-hosted.example/static-file/'
+  );
+  vi.resetModules();
+  const { staticFileIdEndpoint, staticFileReferenceEndpoint } = await import(
+    './servers'
+  );
+  expect(staticFileIdEndpoint('avatar-id')).toBe(
+    'https://self-hosted.example/static-file/file/avatar-id'
+  );
+  expect(staticFileReferenceEndpoint('avatar-id')).toBe(
+    'https://self-hosted.example/static-file/file/avatar-id'
+  );
+});
+
 it('keeps browser image URLs proxied but gives the agent a fetchable hosted URL', async () => {
   vi.stubEnv('MODE', 'development');
   vi.stubEnv('VITE_DEV_PROXY', 'true');

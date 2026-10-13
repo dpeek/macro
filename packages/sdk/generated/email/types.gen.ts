@@ -1822,7 +1822,7 @@ export type UpsertScheduledResponse = {
     send_time: string;
 };
 
-export type UserProvider = 'GMAIL' | 'OUTLOOK';
+export type UserProvider = 'GMAIL' | 'OUTLOOK' | 'STALWART';
 
 export type Value = unknown;
 

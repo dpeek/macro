@@ -13,10 +13,16 @@ impl GmailHistoryRepository for PgMailboxSync {
         work: &[HistoryWork],
     ) -> Result<(), MailboxError> {
         let mut tx = self.db.begin().await.map_err(db_error)?;
-        let current=sqlx::query!(r#"SELECT h.history_id FROM email_links l JOIN email_gmail_histories h ON h.link_id=l.id
-            WHERE l.id=$1 AND l.provider='GMAIL' AND l.is_sync_active AND l.disconnect_requested_at IS NULL FOR UPDATE OF l,h"#,link)
-            .fetch_optional(&mut *tx).await.map_err(db_error)?.ok_or(MailboxError::Stale)?;
-        if current.history_id != expected {
+        let current = sqlx::query_scalar::<_, String>(
+            r#"SELECT h.history_id FROM email_links l JOIN email_gmail_histories h ON h.link_id=l.id
+            WHERE l.id=$1 AND l.provider IN ('GMAIL','STALWART') AND l.is_sync_active AND l.disconnect_requested_at IS NULL FOR UPDATE OF l,h"#,
+        )
+        .bind(link)
+        .fetch_optional(&mut *tx)
+        .await
+        .map_err(db_error)?
+        .ok_or(MailboxError::Stale)?;
+        if current != expected {
             return Err(MailboxError::Stale);
         }
         for item in work {

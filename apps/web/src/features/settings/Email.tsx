@@ -5,6 +5,7 @@ import {
 import { useCalendarUiFlag } from '@app/features/calendar/hooks/use-calendar-ui-flag';
 import { openAddInboxDialog } from '@app/features/inbox/AddInboxDialog';
 import { useFeatureFlag } from '@app/lib/analytics/posthog';
+import { redirectToEmailAuth } from '@core/auth/email';
 import { toast } from '@core/component/Toast/Toast';
 import {
   ENABLE_INBOX_RESYNC,
@@ -53,7 +54,7 @@ import {
 import { clearSignatureState } from './SignatureSection';
 
 /**
- * Gmail integration as a single Connected-accounts card: a header row with the
+ * Email integration as a single Connected-accounts card: a header row with the
  * connection state/action, and — once connected — a row per inbox plus add /
  * disconnect controls. All the inbox + backfill logic is unchanged; only the
  * surrounding chrome moved from a standalone panel to a shared card.
@@ -66,6 +67,25 @@ export function EmailCard() {
   const { query: emailLinksQuery, resyncInbox } = useEmailLinks();
   const emailActive = useEmailLinksStatus();
   const startAddInbox = useAddInboxFlow();
+
+  const authorizeInbox = (
+    link: EmailLink,
+    scopes: ReturnType<typeof reconnectScopes>
+  ) => {
+    if (link.provider === 'STALWART') {
+      redirectToEmailAuth({ idpName: 'stalwart' });
+      return;
+    }
+    fireAndForget(
+      startAddInbox({
+        scopes,
+        provider: link.provider,
+        reconnectLinkId: link.id,
+        emailAddress: link.email_address,
+      }),
+      'add-inbox'
+    );
+  };
 
   // Fires when the Email settings open. Used only to surface the COMPLETED
   // state; in-progress state comes from the live connection-gateway store.
@@ -188,26 +208,10 @@ export function EmailCard() {
                 resyncing={resyncingIds().has(primary().id)}
                 onResync={() => handleResyncInbox(primary().id)}
                 onReconnect={() =>
-                  fireAndForget(
-                    startAddInbox({
-                      scopes: reconnectScopes(primary()),
-                      provider: primary().provider,
-                      reconnectLinkId: primary().id,
-                      emailAddress: primary().email_address,
-                    }),
-                    'add-inbox'
-                  )
+                  authorizeInbox(primary(), reconnectScopes(primary()))
                 }
                 onEnableCalendar={() =>
-                  fireAndForget(
-                    startAddInbox({
-                      scopes: calendarConsentScopes(primary()),
-                      provider: primary().provider,
-                      reconnectLinkId: primary().id,
-                      emailAddress: primary().email_address,
-                    }),
-                    'add-inbox'
-                  )
+                  authorizeInbox(primary(), calendarConsentScopes(primary()))
                 }
                 onRemove={() =>
                   setRemoveTarget({
@@ -240,27 +244,9 @@ export function EmailCard() {
                 hasCompletedBackfill={hasCompletedBackfill(link.id)}
                 resyncing={resyncingIds().has(link.id)}
                 onResync={() => handleResyncInbox(link.id)}
-                onReconnect={() =>
-                  fireAndForget(
-                    startAddInbox({
-                      scopes: reconnectScopes(link),
-                      provider: link.provider,
-                      reconnectLinkId: link.id,
-                      emailAddress: link.email_address,
-                    }),
-                    'add-inbox'
-                  )
-                }
+                onReconnect={() => authorizeInbox(link, reconnectScopes(link))}
                 onEnableCalendar={() =>
-                  fireAndForget(
-                    startAddInbox({
-                      scopes: calendarConsentScopes(link),
-                      provider: link.provider,
-                      reconnectLinkId: link.id,
-                      emailAddress: link.email_address,
-                    }),
-                    'add-inbox'
-                  )
+                  authorizeInbox(link, calendarConsentScopes(link))
                 }
                 onRemove={() =>
                   setRemoveTarget({
@@ -466,6 +452,15 @@ function InboxRow(props: {
             <span class="ph-no-capture text-sm truncate">
               {props.link.email_address}
             </span>
+            <Chip
+              label={
+                props.link.provider === 'STALWART'
+                  ? 'Stalwart'
+                  : props.link.provider === 'OUTLOOK'
+                    ? 'Outlook'
+                    : 'Gmail'
+              }
+            />
             <Show when={props.isPrimary}>
               <Chip label="Primary" />
             </Show>
@@ -476,7 +471,9 @@ function InboxRow(props: {
           <span class="text-xs text-ink-muted">
             {props.link.provider === 'OUTLOOK'
               ? 'Outlook / Microsoft 365'
-              : 'Gmail'}
+              : props.link.provider === 'STALWART'
+                ? 'Stalwart'
+                : 'Gmail'}
           </span>
           <Show when={ENABLE_INBOX_SYNC_STATUS}>
             <Switch
@@ -535,7 +532,11 @@ function InboxRow(props: {
           {/* Explicitly enabling calendar also restores mailbox access when
               the Google grant has expired. */}
           <Show
-            when={calendarUiEnabled() && props.link.needs_calendar_permission}
+            when={
+              calendarUiEnabled() &&
+              props.link.provider === 'GMAIL' &&
+              props.link.needs_calendar_permission
+            }
           >
             <Button
               variant="outline"
@@ -555,6 +556,7 @@ function InboxRow(props: {
           <Show
             when={
               calendarUiEnabled() &&
+              props.link.provider === 'GMAIL' &&
               props.isOwn &&
               (!props.link.needs_calendar_permission ||
                 props.link.has_calendar_data)

@@ -74,6 +74,21 @@ impl S3Client {
             &self.inner,
             &self.document_storage_bucket,
             key,
+            std::time::Duration::from_secs(5 * 60),
+        )
+        .await
+    }
+
+    pub async fn get_document_storage_presigned_url(
+        &self,
+        key: &str,
+        expiry: std::time::Duration,
+    ) -> anyhow::Result<String> {
+        internal_presigned_helpers::get_presigned_url(
+            &self.inner,
+            &self.document_storage_bucket,
+            key,
+            expiry,
         )
         .await
     }
@@ -226,3 +241,7 @@ impl S3Client {
         Ok(true)
     }
 }
+
+#[cfg(test)]
+#[path = "s3/fog_rustfs_contract.rs"]
+mod fog_rustfs_contract;

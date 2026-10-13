@@ -30,6 +30,7 @@ async fn snapshot(
         provider: match row.provider.as_str() {
             "GMAIL" => UserProvider::Gmail,
             "OUTLOOK" => UserProvider::Outlook,
+            "STALWART" => UserProvider::Stalwart,
             _ => return Err(InboxLifecycleError::Unavailable),
         },
         promoted: row.promoted,
@@ -252,7 +253,7 @@ impl InboxLifecycleRepository for PgMailboxSync {
         }
         let link = current.link_id;
         let result = match current.provider {
-            UserProvider::Gmail => {
+            UserProvider::Gmail | UserProvider::Stalwart => {
                 let existing=sqlx::query_scalar!("SELECT id FROM email_backfill_jobs WHERE link_id = $1 AND status IN ('Init','InProgress') LIMIT 1",link).fetch_optional(&mut *tx).await.map_err(failed)?;
                 if let Some(id) = existing {
                     InboxResync {

@@ -6,6 +6,7 @@ use axum::response::{IntoResponse, Response};
 use calendar_events::domain::ports::{CalendarMutationError, CalendarMutationService};
 use macro_authorization::{MacroAuthorizationExtractor, UserOrInternal};
 use model::response::{EmptyResponse, ErrorResponse};
+use models_email::service::link::UserProvider;
 use uuid::Uuid;
 
 /// Turns calendar off for a connected inbox.
@@ -40,7 +41,10 @@ pub async fn disable_link_calendar_handler(
     Path(link_id): Path<Uuid>,
 ) -> Result<Response, InboxActionError> {
     let macro_user_id = &authorization.authorization.user.macro_user_id;
-    let (_, access) = authorize_inbox_access(&ctx, macro_user_id.as_ref(), link_id).await?;
+    let (link, access) = authorize_inbox_access(&ctx, macro_user_id.as_ref(), link_id).await?;
+    if link.provider == UserProvider::Stalwart {
+        return Err(InboxActionError::NotFound);
+    }
     if access == InboxAccess::Delegated {
         return Err(InboxActionError::Forbidden);
     }

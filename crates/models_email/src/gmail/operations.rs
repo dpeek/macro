@@ -108,16 +108,12 @@ impl GmailApiOperation {
             HistoryList => 2,
 
             // --- 5 Quota Units ---
-            DraftsGet
-            | DraftsList
+            DraftsList
             | LabelsCreate
             | LabelsDelete
             | LabelsUpdate
-            | MessagesAttachmentsGet
-            | MessagesGet
             | MessagesList
             | MessagesModify
-            | MessagesTrash
             | MessagesUntrash
             | SettingsDelegatesDelete
             | SettingsFiltersCreate
@@ -129,17 +125,25 @@ impl GmailApiOperation {
             | SettingsSendAsDelete => 5,
 
             // --- 10 Quota Units ---
-            DraftsCreate | DraftsDelete | MessagesDelete | ThreadsGet | ThreadsList
-            | ThreadsModify | ThreadsTrash | ThreadsUntrash => 10,
+            DraftsCreate | DraftsDelete | MessagesDelete | ThreadsList | ThreadsModify
+            | ThreadsUntrash => 10,
 
             // --- 15 Quota Units ---
             DraftsUpdate => 15,
 
             // --- 20 Quota Units ---
-            ThreadsDelete => 20,
+            DraftsGet
+            | MessagesAttachmentsGet
+            | MessagesGet
+            | MessagesTrash
+            | ThreadsDelete
+            | ThreadsTrash => 20,
 
             // --- 25 Quota Units ---
             MessagesImport | MessagesInsert => 25,
+
+            // --- 40 Quota Units ---
+            ThreadsGet => 40,
 
             // --- 50 Quota Units ---
             MessagesBatchDelete | MessagesBatchModify | Stop => 50,
@@ -155,5 +159,20 @@ impl GmailApiOperation {
             | SettingsUpdatePop
             | Watch => 100,
         }
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::GmailApiOperation;
+
+    #[test]
+    fn expensive_reads_use_current_gmail_quota_costs() {
+        assert_eq!(GmailApiOperation::DraftsGet.cost(), 20);
+        assert_eq!(GmailApiOperation::MessagesAttachmentsGet.cost(), 20);
+        assert_eq!(GmailApiOperation::MessagesGet.cost(), 20);
+        assert_eq!(GmailApiOperation::MessagesTrash.cost(), 20);
+        assert_eq!(GmailApiOperation::ThreadsGet.cost(), 40);
+        assert_eq!(GmailApiOperation::ThreadsTrash.cost(), 20);
     }
 }

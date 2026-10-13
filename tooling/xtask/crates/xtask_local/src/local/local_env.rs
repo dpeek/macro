@@ -770,8 +770,8 @@ impl BootStubEnv {
             identity::MACRO_API_TOKEN_PRIVATE_KEY.into(),
         );
         env.insert("MACRO_API_TOKEN_EXPIRY_SECONDS".into(), "3600".into());
-        // email_service's GCP pubsub queue (gmail watch notifications) and
-        // its own CloudFront signer for attachment presigned URLs.
+        // Placeholder for stacks without real Gmail linking. A real Google
+        // mailbox needs a fully qualified Pub/Sub topic in the env overlay.
         env.insert("GMAIL_GCP_QUEUE".into(), "gmail-gcp-queue-local".into());
         env.insert("APOLLO_API_KEY".into(), "local".into());
         env.insert(

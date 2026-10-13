@@ -26,9 +26,10 @@ const serverHostLocal: Servers = {
 const devServerSuffix = import.meta.env.MODE === 'development' ? '-dev' : '';
 
 const gatewayHost =
-  import.meta.env.MODE === 'development'
+  import.meta.env.VITE_GATEWAY_ORIGIN?.replace(/\/$/, '') ||
+  (import.meta.env.MODE === 'development'
     ? 'https://dev-gateway.macro.com'
-    : 'https://gateway.macro.com';
+    : 'https://gateway.macro.com');
 
 const authLogoutUrl =
   import.meta.env.MODE === 'development'
@@ -44,7 +45,9 @@ const directServerHostRemote = {
   'cognition-service': `${gatewayHost}/cognition`,
   'connection-gateway': `${gatewayHost.replace(/^http/, 'ws')}/connection-gateway`,
   'notification-service': `${gatewayHost}/notification`,
-  'static-file': `https://static-file-service${devServerSuffix}.macro.com`,
+  'static-file':
+    import.meta.env.VITE_STATIC_FILE_PUBLIC_URL?.replace(/\/$/, '') ||
+    `https://static-file-service${devServerSuffix}.macro.com`,
   'unfurl-service': `${gatewayHost}/unfurl`,
   contacts: `${gatewayHost}/contacts`,
   'email-service': `${gatewayHost}/email`,

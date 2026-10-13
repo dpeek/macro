@@ -11,6 +11,7 @@ use axum::{
     response::{IntoResponse, Redirect, Response},
 };
 use macro_env::Environment;
+use macro_env_var::optional_read_env_var;
 use model::response::ErrorResponse;
 use reqwest::StatusCode;
 use tower_cookies::Cookies;
@@ -24,6 +25,18 @@ pub(in crate::api::oauth2) async fn handler(
     state: &OAuthState,
 ) -> Result<Response, Response> {
     let environment = Environment::new_or_prod();
+
+    // In Fog, provider callbacks are for account linking. Only the Stalwart
+    // SSO callback may create a new Macro session.
+    if optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .map_err(|error| {
+            tracing::error!(error=?error, "Unable to read Fog sign-in configuration");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        })?
+        .is_some()
+    {
+        return Err((StatusCode::FORBIDDEN, "Sign in with Stalwart").into_response());
+    }
 
     // No link_id was provided, login the user through fusionauth
     let (access_token, refresh_token) = ctx

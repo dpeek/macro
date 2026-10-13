@@ -4,6 +4,7 @@ pub mod error;
 pub mod google_access_token;
 pub mod microsoft_access_token;
 pub mod relocate_inbox_grant;
+pub mod stalwart_access_token;
 pub mod unlink;
 pub mod users;
 

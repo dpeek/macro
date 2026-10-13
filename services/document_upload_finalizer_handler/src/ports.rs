@@ -14,6 +14,13 @@ pub trait DocumentUploadMetadataPort: Send + Sync {
 
 /// Object storage read operations needed by the upload finalization use case.
 pub trait DocumentObjectReader: Send + Sync {
+    /// Distinguish a late event for a removed object from a still-pending upload.
+    fn object_exists(
+        &self,
+        bucket: &str,
+        key: &str,
+    ) -> impl Future<Output = Result<bool, anyhow::Error>> + Send;
+
     /// Read an object as UTF-8 text.
     fn read_utf8_object(
         &self,

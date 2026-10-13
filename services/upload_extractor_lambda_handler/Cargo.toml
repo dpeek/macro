@@ -40,3 +40,6 @@ workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
 [package.metadata.cargo-machete]
 ignored = ["connection_gateway_client"]
+
+[dev-dependencies]
+macro_aws_config = { path = "../../crates/macro_aws_config", features = ["s3"] }

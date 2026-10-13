@@ -1,6 +1,13 @@
 use super::*;
 
 #[test]
+fn stalwart_provider_has_a_distinct_api_value() {
+    let provider = UserProvider::from(crate::email::service::link::UserProvider::Stalwart);
+    assert_eq!(provider.as_str(), "STALWART");
+    assert_eq!(serde_json::to_string(&provider).unwrap(), "\"STALWART\"");
+}
+
+#[test]
 fn inactive_link_is_inactive_regardless_of_reauth() {
     assert_eq!(SyncStatus::derive(false, false, None), SyncStatus::Inactive);
     assert_eq!(SyncStatus::derive(false, true, None), SyncStatus::Inactive);

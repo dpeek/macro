@@ -1,5 +1,6 @@
 use super::*;
 use macro_db_migrator::MACRO_DB_MIGRATIONS;
+use models_email::service::link::UserProvider;
 
 async fn insert_email_link(pool: &PgPool) -> (Uuid, String) {
     let link_id = Uuid::now_v7();

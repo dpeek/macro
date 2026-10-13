@@ -81,6 +81,21 @@ describe('toCalendarAccounts', () => {
     expect(toCalendarAccounts(links, 'macro|self')[0]?.action).toBe('enable');
   });
 
+  it('does not offer the unsupported turn-off action for an active Stalwart calendar', () => {
+    expect(
+      toCalendarAccounts([link('a', { provider: 'STALWART' })], 'macro|self')
+    ).toEqual([]);
+  });
+
+  it('still offers Stalwart reauthorization when the grant expires', () => {
+    expect(
+      toCalendarAccounts(
+        [link('a', { provider: 'STALWART', needs_reauth: true })],
+        'macro|self'
+      )[0]
+    ).toMatchObject({ action: 'reconnect', provider: 'STALWART' });
+  });
+
   it('sorts the primary inbox first and keeps the rest in order', () => {
     const links = [
       link('second'),

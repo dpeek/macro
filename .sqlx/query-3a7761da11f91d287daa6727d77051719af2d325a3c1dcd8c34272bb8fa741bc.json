@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "DELETE FROM \"RolesOnUsers\" WHERE \"userId\" = $1 AND \"roleId\" = 'self_serve'",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "3a7761da11f91d287daa6727d77051719af2d325a3c1dcd8c34272bb8fa741bc"
+}

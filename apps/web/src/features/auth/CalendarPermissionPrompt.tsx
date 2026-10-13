@@ -36,6 +36,7 @@ export function CalendarPermissionPrompt() {
       calendarUiEnabled() && promptAllowed()
         ? (linksQuery.isSuccess ? linksQuery.data.links : []).filter(
             (link) =>
+              link.provider === 'GMAIL' &&
               link.needs_calendar_permission &&
               !link.needs_reauth &&
               !link.calendar_disabled
@@ -62,7 +63,7 @@ export function CalendarPermissionPrompt() {
             fireAndForget(
               startAddInbox({
                 scopes: 'calendar',
-                provider: link.provider,
+                provider: 'GMAIL',
                 reconnectLinkId: link.id,
                 emailAddress: link.email_address,
               }),

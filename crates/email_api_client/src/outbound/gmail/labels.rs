@@ -17,7 +17,7 @@ impl MailboxLabelClient for GmailApiClientRepository {
         link_id: Uuid,
     ) -> Result<Vec<Label>, EmailApiError> {
         let labels = self
-            .client
+            .client_for(access_token)?
             .fetch_user_labels(access_token.expose_secret())
             .await
             .map_err(map_gmail_error)?;
@@ -39,7 +39,7 @@ impl MailboxLabelClient for GmailApiClientRepository {
             color: None,
         };
         let label = self
-            .client
+            .client_for(access_token)?
             .create_label(access_token.expose_secret(), &request)
             .await
             .map_err(map_gmail_error)?;
@@ -52,7 +52,7 @@ impl MailboxLabelClient for GmailApiClientRepository {
         provider_label_id: &str,
     ) -> Result<(), EmailApiError> {
         match self
-            .client
+            .client_for(access_token)?
             .delete_label(access_token.expose_secret(), provider_label_id)
             .await
         {

@@ -10,7 +10,7 @@ pub(in crate::service::s3) async fn delete_objects(
     bucket: &str,
     objects: Vec<String>,
 ) -> anyhow::Result<()> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok(());
     }
 
@@ -47,7 +47,7 @@ pub(in crate::service::s3) async fn delete_document(
     owner: &Owner,
     document_id: &str,
 ) -> anyhow::Result<()> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok(());
     }
 

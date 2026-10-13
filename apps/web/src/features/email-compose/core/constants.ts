@@ -5,7 +5,9 @@ export const MAX_ATTACHMENTS_BYTES_SIZE = 18_000_000;
 // Gmail caps a message's attachments at 25 MB; Exchange Online sends at most
 // 35 MB by default and Outlook.com attachments stop at 25 MB. Graph accepts
 // uploads up to 150 MB, but the mailbox bounces anything over its send size.
-export function attachmentLimitBytes(provider?: 'GMAIL' | 'OUTLOOK'): number {
+export function attachmentLimitBytes(
+  provider?: 'GMAIL' | 'OUTLOOK' | 'STALWART'
+): number {
   return provider === 'OUTLOOK' ? 25_000_000 : MAX_ATTACHMENTS_BYTES_SIZE;
 }
 

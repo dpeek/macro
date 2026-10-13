@@ -1,3 +1,4 @@
+import { redirectToEmailAuth } from '@core/auth/email';
 import { useKeyedPersistentToasts } from '@core/component/Toast/useKeyedPersistentToasts';
 import { useAddInboxFlow } from '@core/email-link';
 import { reconnectScopes } from '@core/email-link/consent';
@@ -30,10 +31,15 @@ export function GmailReauthenticationPrompt() {
     key: (link) => link.id,
     toast: (link, dismiss) => ({
       title:
-        reconnectScopes(link) === 'gmail_and_calendar'
-          ? 'Reconnect email and calendar'
-          : 'Reconnect inbox',
+        link.provider === 'STALWART'
+          ? 'Reconnect Stalwart'
+          : reconnectScopes(link) === 'gmail_and_calendar'
+            ? 'Reconnect email and calendar'
+            : 'Reconnect inbox',
       content(): string {
+        if (link.provider === 'STALWART') {
+          return `Sync stopped for ${link.email_address}. Reconnect Stalwart to restore email sync.`;
+        }
         return `Sync stopped for ${link.email_address}. Reconnect to restore ${reconnectScopes(link) === 'gmail_and_calendar' ? 'email and calendar' : 'email'} sync.`;
       },
       actions: [
@@ -43,6 +49,10 @@ export function GmailReauthenticationPrompt() {
             // Suppress re-prompting until the inbox recovers; on native the page
             // stays mounted while the OAuth flow runs.
             dismiss();
+            if (link.provider === 'STALWART') {
+              redirectToEmailAuth({ idpName: 'stalwart' });
+              return;
+            }
             fireAndForget(
               startAddInbox({
                 scopes: reconnectScopes(link),

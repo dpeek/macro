@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO user_onboarding (user_id, status, skipped, completed_at)\n        VALUES ($1, 'completed', TRUE, NOW())\n        ON CONFLICT (user_id) DO UPDATE SET\n            status = 'completed', skipped = TRUE,\n            completed_at = COALESCE(user_onboarding.completed_at, EXCLUDED.completed_at),\n            updated_at = NOW()\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "8d695bc17166869c6013aed80ccccff79c3ef271690f63858ddfee513a85d069"
+}

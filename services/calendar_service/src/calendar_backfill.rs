@@ -3,7 +3,7 @@
 //! Drains calendar's own backfill queue, resolves the connected inbox's grant,
 //! and drives the Google Calendar backfill coordinator. Modeled on the calendar
 //! branch of email_service's backfill worker, but self-contained: tokens come
-//! from [`google_token`] rather than the Gmail provider stack.
+//! from the selected provider's existing authentication path.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,8 +11,8 @@ use std::time::Duration;
 use authentication_service_client::{AuthServiceClient, error::AuthServiceClientError};
 use calendar_events::domain::{
     models::{
-        CalendarBackfillFailureDisposition, CalendarBackfillJobKey, GoogleBackfillRunReport,
-        GoogleWatchConfig, OccurrenceRange,
+        CalendarBackfillFailureDisposition, CalendarBackfillJobKey, CalendarProvider,
+        GoogleBackfillRunReport, GoogleScopeSet, GoogleWatchConfig, OccurrenceRange,
     },
     service::{
         CalendarReauthAnnouncer, GoogleCalendarBackfillCoordinator,
@@ -62,8 +62,10 @@ pub struct CalendarBackfillContext {
     redis_conn: MultiplexedConnection,
     auth_service_client: AuthServiceClient,
     connection_gateway_client: connection_gateway_client::client::ConnectionGatewayClient,
-    coordinator: Arc<GoogleCalendarBackfillService>,
-    failure: Arc<GoogleCalendarBackfillFailureHandler>,
+    google_coordinator: Arc<GoogleCalendarBackfillService>,
+    stalwart_coordinator: Option<Arc<GoogleCalendarBackfillService>>,
+    google_failure: Arc<GoogleCalendarBackfillFailureHandler>,
+    stalwart_failure: Option<Arc<GoogleCalendarBackfillFailureHandler>>,
     reauth: Arc<CalendarReauth>,
     calendar_sync_enabled: bool,
     team_sharing_enabled: bool,
@@ -84,22 +86,47 @@ impl CalendarBackfillContext {
         watch: Option<GoogleWatchConfig>,
         calendar_sync_enabled: bool,
         team_sharing_enabled: bool,
+        stalwart_api_base: Option<&str>,
     ) -> Self {
-        let repository = PgCalendarRepository::new(db.clone());
-        let coordinator = Arc::new(GoogleCalendarBackfillCoordinator::new(
-            repository.clone(),
+        let http = reqwest::Client::builder()
+            .timeout(Duration::from_secs(30))
+            .build()
+            .expect("calendar client configuration is valid");
+        let google_repository =
+            PgCalendarRepository::with_provider(db.clone(), CalendarProvider::Google);
+        let google_coordinator = Arc::new(GoogleCalendarBackfillCoordinator::new(
+            google_repository.clone(),
             GoogleCalendarClient::with_gate(
-                reqwest::Client::builder()
-                    .timeout(Duration::from_secs(30))
-                    .build()
-                    .expect("calendar client configuration is valid"),
-                RedisCalendarRequestGate::new(rate_limiter),
+                http.clone(),
+                RedisCalendarRequestGate::new(rate_limiter.clone()),
             ),
-            repository.clone(),
-            macro_event_broker,
+            google_repository.clone(),
+            macro_event_broker.clone(),
             watch,
         ));
-        let failure = Arc::new(GoogleCalendarBackfillFailureService::new(repository));
+        let google_failure = Arc::new(GoogleCalendarBackfillFailureService::new(google_repository));
+        let (stalwart_coordinator, stalwart_failure) = if let Some(api_base) = stalwart_api_base {
+            let repository =
+                PgCalendarRepository::with_provider(db.clone(), CalendarProvider::Stalwart);
+            (
+                Some(Arc::new(GoogleCalendarBackfillCoordinator::new(
+                    repository.clone(),
+                    GoogleCalendarClient::with_gate_at_base(
+                        http,
+                        RedisCalendarRequestGate::new(rate_limiter),
+                        api_base,
+                    ),
+                    repository.clone(),
+                    macro_event_broker,
+                    None,
+                ))),
+                Some(Arc::new(GoogleCalendarBackfillFailureService::new(
+                    repository,
+                ))),
+            )
+        } else {
+            (None, None)
+        };
         let reauth = Arc::new(CalendarReauthAnnouncer::new(reauth_notifier));
         Self {
             db,
@@ -107,8 +134,10 @@ impl CalendarBackfillContext {
             redis_conn,
             auth_service_client,
             connection_gateway_client,
-            coordinator,
-            failure,
+            google_coordinator,
+            stalwart_coordinator,
+            google_failure,
+            stalwart_failure,
             reauth,
             calendar_sync_enabled,
             team_sharing_enabled,
@@ -248,6 +277,7 @@ async fn google_backfill(
                 calendar_job_id,
                 CalendarBackfillFailureDisposition::Permanent,
                 "link not found for calendar backfill",
+                CalendarProvider::Google,
             )
             .await;
         }
@@ -264,13 +294,52 @@ async fn google_backfill(
         link.email_address.0.as_ref(),
         link.provider.as_str(),
     );
-    let access_token = match google_token::fetch_gmail_access_token_no_cache(
-        &key,
-        &ctx.redis_conn,
-        &ctx.auth_service_client,
-    )
-    .await
-    {
+    let Some(provider) = CalendarProvider::from_link_provider(link.provider.as_str()) else {
+        return fail_unclaimed(
+            ctx,
+            link_id,
+            calendar_job_id,
+            CalendarBackfillFailureDisposition::Permanent,
+            "unsupported calendar link provider",
+            CalendarProvider::Google,
+        )
+        .await;
+    };
+    let token_result = match provider {
+        CalendarProvider::Google => {
+            google_token::fetch_gmail_access_token_no_cache(
+                &key,
+                &ctx.redis_conn,
+                &ctx.auth_service_client,
+            )
+            .await
+        }
+        CalendarProvider::Stalwart => ctx
+            .auth_service_client
+            .get_stalwart_access_token(&link.fusionauth_user_id, link.email_address.0.as_ref())
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|token| {
+                let scopes = GoogleScopeSet::parse(token.scope.as_deref().unwrap_or_default());
+                if scopes.has_calendar_capability_for(CalendarProvider::Stalwart) {
+                    Ok(token.access_token)
+                } else {
+                    Err(AuthServiceClientError::Forbidden.into())
+                }
+            }),
+        CalendarProvider::Outlook => {
+            return fail_unclaimed(
+                ctx,
+                link_id,
+                calendar_job_id,
+                CalendarBackfillFailureDisposition::Permanent,
+                "Outlook links do not use the Google-shaped calendar backfill queue",
+                provider,
+            )
+            .await;
+        }
+    };
+    let access_token = match token_result {
         Ok(token) => token,
         Err(error) => {
             if is_reauth_required_error(&error) {
@@ -280,6 +349,7 @@ async fn google_backfill(
                     calendar_job_id,
                     CalendarBackfillFailureDisposition::ReauthRequired,
                     &format!("{error:?}"),
+                    provider,
                 )
                 .await;
             }
@@ -289,7 +359,7 @@ async fn google_backfill(
         }
     };
 
-    run_coordinator(ctx, &access_token, &link, calendar_job_id).await
+    run_coordinator(ctx, &access_token, &link, calendar_job_id, provider).await
 }
 
 async fn run_coordinator(
@@ -297,10 +367,26 @@ async fn run_coordinator(
     access_token: &str,
     link: &Link,
     calendar_job_id: Uuid,
+    provider: CalendarProvider,
 ) -> Disposition {
     let mut report = GoogleBackfillRunReport::default();
-    let run_result = ctx
-        .coordinator
+    let coordinator = match provider {
+        CalendarProvider::Google => &ctx.google_coordinator,
+        CalendarProvider::Stalwart => match &ctx.stalwart_coordinator {
+            Some(coordinator) => coordinator,
+            None => {
+                return Disposition::Retry(anyhow::anyhow!(
+                    "Stalwart calendar API is not configured"
+                ));
+            }
+        },
+        CalendarProvider::Outlook => {
+            return Disposition::Retry(anyhow::anyhow!(
+                "Outlook links do not use the Google-shaped calendar backfill coordinator"
+            ));
+        }
+    };
+    let run_result = coordinator
         .run(
             CalendarBackfillJobKey {
                 job_id: calendar_job_id,
@@ -359,9 +445,14 @@ async fn fail_unclaimed(
     calendar_job_id: Uuid,
     disposition: CalendarBackfillFailureDisposition,
     message: &str,
+    provider: CalendarProvider,
 ) -> Disposition {
-    match ctx
-        .failure
+    let failure = match provider {
+        CalendarProvider::Google => &ctx.google_failure,
+        CalendarProvider::Stalwart => ctx.stalwart_failure.as_ref().unwrap_or(&ctx.google_failure),
+        CalendarProvider::Outlook => &ctx.google_failure,
+    };
+    match failure
         .fail_unclaimed(
             CalendarBackfillJobKey {
                 job_id: calendar_job_id,

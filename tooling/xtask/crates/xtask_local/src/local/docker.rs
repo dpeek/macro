@@ -31,13 +31,14 @@ fn connect() -> Result<Docker> {
     }
 }
 
-/// Idempotently create a bridge network (no-op if it already exists).
+/// Idempotently create an IPv4-only bridge network (no-op if it already exists).
 pub fn ensure_network(name: &str) -> Result<()> {
     block_on(async {
         let docker = connect()?;
         match docker
             .create_network(NetworkCreateRequest {
                 name: name.to_string(),
+                enable_ipv6: Some(false),
                 ..Default::default()
             })
             .await

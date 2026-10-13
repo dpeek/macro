@@ -127,11 +127,11 @@ pub struct Config {
 
     /// The number of requests we allow per window for backfilling. Less than redis_rate_limit_reqs
     /// so we have room for normal gmail operations while backfilling is occurring
-    #[macro_config_default(13000)]
+    #[macro_config_default(4000)]
     pub redis_rate_limit_reqs_backfill: u32,
 
     /// The number of requests we allow per window.
-    #[macro_config_default(14000)]
+    #[macro_config_default(5000)]
     pub redis_rate_limit_reqs: u32,
 
     /// The size of the sliding window we use for rate limit.

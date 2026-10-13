@@ -24,7 +24,7 @@ impl MailboxCalendarClient for GmailApiClientRepository {
         provider_message_id: &str,
     ) -> Result<Vec<CalendarPart>, EmailApiError> {
         let Some(message) = self
-            .client
+            .client_for(access_token)?
             .get_message(access_token.expose_secret(), provider_message_id)
             .await
             .map_err(map_gmail_error)?
@@ -77,7 +77,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         provider_message_id: &str,
     ) -> Result<Option<MessageWithCalendarParts>, EmailApiError> {
         let Some(resource) = self
-            .client
+            .client_for(access_token)?
             .get_message(access_token.expose_secret(), provider_message_id)
             .await
             .map_err(map_gmail_error)?
@@ -101,7 +101,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         access_token: &AccessToken,
         provider_message_id: &str,
     ) -> Result<Option<Vec<String>>, EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .get_message_label_ids(access_token.expose_secret(), provider_message_id)
             .await
             .map_err(map_gmail_error)
@@ -113,7 +113,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         limit: u32,
         label_ids: &[&str],
     ) -> Result<Vec<String>, EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .list_messages(access_token.expose_secret(), limit, label_ids)
             .await
             .map_err(map_gmail_error)
@@ -124,7 +124,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         access_token: &AccessToken,
         provider_thread_id: &str,
     ) -> Result<Vec<String>, EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .get_message_ids_for_thread(access_token.expose_secret(), provider_thread_id)
             .await
             .map_err(map_gmail_error)
@@ -137,7 +137,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         provider_thread_id: &str,
     ) -> Result<Vec<Message>, EmailApiError> {
         let resource = self
-            .client
+            .client_for(access_token)?
             .get_thread(access_token.expose_secret(), provider_thread_id)
             .await
             .map_err(map_gmail_error)?;
@@ -152,7 +152,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         label_ids: &[&str],
     ) -> Result<ThreadListPage, EmailApiError> {
         let response = self
-            .client
+            .client_for(access_token)?
             .list_threads(
                 access_token.expose_secret(),
                 limit,
@@ -181,7 +181,7 @@ impl MailboxMessageClient for GmailApiClientRepository {
         label_ids_to_add: &[String],
         label_ids_to_remove: &[String],
     ) -> Result<(), EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .modify_message_labels(
                 access_token.expose_secret(),
                 provider_message_id,

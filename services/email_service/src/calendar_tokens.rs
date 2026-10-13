@@ -2,7 +2,7 @@
 
 use authentication_service_client::{AuthServiceClient, error::AuthServiceClientError};
 use calendar_events::domain::{
-    models::{CalendarLinkTokenIdentity, CalendarProvider},
+    models::{CalendarLinkTokenIdentity, CalendarProvider, GoogleScopeSet},
     ports::{CalendarAccessTokenProvider, CalendarTokenError},
 };
 use email_utils::token_cache_key::TokenCacheKey;
@@ -68,6 +68,28 @@ impl CalendarAccessTokenProvider for CalendarTokenProviderAdapter {
                 ));
             }
             return Ok(token.access_token);
+        }
+        if identity.provider == CalendarProvider::Stalwart {
+            let grant = self
+                .auth_service_client
+                .get_stalwart_access_token(&identity.fusionauth_user_id, &identity.email_address)
+                .await
+                .map_err(|error| match error {
+                    AuthServiceClientError::Forbidden
+                    | AuthServiceClientError::NotFound
+                    | AuthServiceClientError::Unauthorized => {
+                        CalendarTokenError::ReauthRequired(error.to_string())
+                    }
+                    _ => CalendarTokenError::Transient(error.to_string()),
+                })?;
+            if !GoogleScopeSet::parse(grant.scope.as_deref().unwrap_or_default())
+                .has_calendar_capability_for(CalendarProvider::Stalwart)
+            {
+                return Err(CalendarTokenError::ReauthRequired(
+                    "Stalwart calendar scope is missing from the access token".to_string(),
+                ));
+            }
+            return Ok(grant.access_token);
         }
         let key = TokenCacheKey::new(
             &identity.fusionauth_user_id,

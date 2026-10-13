@@ -7,6 +7,7 @@ use axum::{
 };
 use calendar_events::domain::models::google_calendar_scope_parameter;
 use macro_authorization::{MacroAuthorizationExtractor, UserOrInternal};
+use macro_env_var::optional_read_env_var;
 use macro_middleware::tracking::ClientIp;
 use model::response::ErrorResponse;
 use roles_and_permissions::domain::model::PermissionId;
@@ -60,6 +61,8 @@ pub struct InitGmailLinkResponse {
 /// Error type for init Gmail operations
 #[derive(thiserror::Error, Debug)]
 pub enum InitGmailLinkError {
+    #[error("Google account linking is unavailable")]
+    Unavailable,
     /// Too many in-progress links
     #[error("too many in progress links")]
     TooManyInProgressLinks,
@@ -78,6 +81,7 @@ impl IntoResponse for InitGmailLinkError {
     fn into_response(self) -> Response {
         let message = self.to_string();
         let status_code: StatusCode = match &self {
+            InitGmailLinkError::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
             InitGmailLinkError::TooManyInProgressLinks => StatusCode::TOO_MANY_REQUESTS,
             InitGmailLinkError::PaymentRequired => StatusCode::PAYMENT_REQUIRED,
             InitGmailLinkError::InternalError(_) | InitGmailLinkError::IdentityProviderNotFound => {
@@ -122,6 +126,7 @@ pub(crate) struct InitGmailLinkQueryParams {
             (status = 429, body=ErrorResponse),
             (status = 401, body=ErrorResponse),
             (status = 500, body=ErrorResponse),
+            (status = 503, description = "Google account linking is unavailable"),
         )
     )]
 #[tracing::instrument(skip(ctx, ip_context, db_permissions), fields(client_ip=%ip_context, user_id=%db_permissions.authorization.authorization.user.user_context.user_id, fusion_user_id=%db_permissions.authorization.authorization.user.user_context.fusion_user_id), err)]
@@ -131,6 +136,18 @@ pub async fn init_gmail_link_handler(
     ip_context: ClientIp,
     db_permissions: DbPermissionsExtractor,
 ) -> Result<Json<InitGmailLinkResponse>, InitGmailLinkError> {
+    let stalwart_sso = optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .ok()
+        .flatten()
+        .is_some();
+    let google_linking_enabled = optional_read_env_var("FOG_GOOGLE_ACCOUNT_LINKING_ENABLED")
+        .ok()
+        .flatten()
+        .as_deref()
+        == Some("true");
+    if stalwart_sso && !google_linking_enabled {
+        return Err(InitGmailLinkError::Unavailable);
+    }
     let Query(InitGmailLinkQueryParams {
         original_url,
         scopes,

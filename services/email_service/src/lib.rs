@@ -18,12 +18,16 @@ pub mod calendar_request_gate;
 pub mod calendar_tokens;
 pub mod composition;
 pub mod config;
+/// Provider HTTP client composition shared by the service and workers.
+pub mod mailbox_provider;
 /// Durable provider-neutral mailbox worker scheduling.
 pub mod mailbox_sync_worker;
 /// Outbound infrastructure adapters for email provider capabilities.
 pub mod outbound;
 pub mod pubsub;
 mod server;
+/// Verifies signed Stalwart mailbox change hints.
+pub mod stalwart_push;
 pub mod util;
 mod utils;
 

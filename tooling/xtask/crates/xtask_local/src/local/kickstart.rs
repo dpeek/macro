@@ -19,8 +19,8 @@ use super::identity;
 mod test;
 
 /// The Google OAuth web client the local `google`/`google_gmail` OIDC identity
-/// providers authenticate against (the Internal client in the
-/// `macro-email-testing` GCP project — see the macro-2634 proposal). Optional:
+/// providers authenticate against (for Fog, the Internal client in the
+/// `macro-511622` Estii Workspace project). Optional:
 /// without it the kickstart is unchanged and the email connect flows stay
 /// unreachable locally, exactly as before.
 pub struct GoogleIdp {

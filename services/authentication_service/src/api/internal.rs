@@ -16,6 +16,7 @@ mod post_get_existing_users;
 mod relocate_inbox_grant;
 mod remove_link;
 mod revoke_microsoft_grant;
+pub(in crate::api) mod stalwart_access_token;
 
 pub fn router() -> Router<ApiContext> {
     Router::new()
@@ -28,6 +29,10 @@ pub fn router() -> Router<ApiContext> {
         .route(
             "/microsoft_disconnect_token",
             get(microsoft_access_token::disconnect_handler),
+        )
+        .route(
+            "/stalwart_access_token",
+            get(stalwart_access_token::handler),
         )
         .route("/get_names", post(post_get_names::handler_internal))
         .route("/get_existing_users", get(post_get_existing_users::handler))

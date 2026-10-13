@@ -1,6 +1,7 @@
 import { ViewSidebar } from '@app/components/view-shell';
 import { useFeatureFlag } from '@app/lib/analytics/posthog';
 import { MobileDrawer } from '@components/app/mobile/MobileDrawer';
+import { redirectToEmailAuth } from '@core/auth/email';
 import { enableMultiInbox } from '@core/constant/featureFlags';
 import { useAddInboxFlow } from '@core/email-link';
 import { isMobile } from '@core/mobile/isMobile';
@@ -113,6 +114,10 @@ function createCalendarSettingsControls(isNarrow: () => boolean) {
     calendarView.closeEventDetails();
     match(account.action)
       .with('enable', () => {
+        if (account.provider === 'STALWART') {
+          redirectToEmailAuth({ idpName: 'stalwart' });
+          return;
+        }
         fireAndForget(
           startAddInbox({
             scopes: account.consentScopes,
@@ -124,6 +129,10 @@ function createCalendarSettingsControls(isNarrow: () => boolean) {
         );
       })
       .with('reconnect', () => {
+        if (account.provider === 'STALWART') {
+          redirectToEmailAuth({ idpName: 'stalwart' });
+          return;
+        }
         fireAndForget(
           startAddInbox({
             scopes: account.consentScopes,

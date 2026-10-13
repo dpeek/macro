@@ -829,6 +829,12 @@ async fn ensure_subscription(
     if status.is_success() {
         return Ok(());
     }
+    // A pre-created subscription can grant the forwarder only Subscriber.
+    // That role permits pull and acknowledge, but not subscription lookup.
+    if status == reqwest::StatusCode::FORBIDDEN {
+        tracing::info!(%subscription, "subscription lookup forbidden; attempting to pull with subscriber access");
+        return Ok(());
+    }
     if status != reqwest::StatusCode::NOT_FOUND {
         bail!("subscription lookup returned {status}");
     }

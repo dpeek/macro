@@ -8,7 +8,7 @@ use axum::{Extension, Json};
 use email_api_client::domain::models::{EmailApiError, TokenFreshness};
 use email_utils::sanitize_html_fragment;
 use model::response::ErrorResponse;
-use models_email::service::link::Link;
+use models_email::service::link::{Link, UserProvider};
 use models_email::{api, service};
 use strum_macros::AsRefStr;
 use thiserror::Error;
@@ -16,6 +16,8 @@ use utoipa::ToSchema;
 
 #[derive(Debug, Error, AsRefStr)]
 pub enum ImportSignatureError {
+    #[error("Signature import is only available for Gmail")]
+    UnsupportedProvider,
     #[error("No signature found in Gmail")]
     NoSignatureFound,
     #[error("Failed to fetch Gmail signature")]
@@ -33,6 +35,9 @@ pub enum ImportSignatureError {
 impl IntoResponse for ImportSignatureError {
     fn into_response(self) -> Response {
         match self {
+            ImportSignatureError::UnsupportedProvider => {
+                (StatusCode::NOT_FOUND, self.to_string()).into_response()
+            }
             ImportSignatureError::NoSignatureFound => {
                 (StatusCode::NOT_FOUND, self.to_string()).into_response()
             }
@@ -79,6 +84,9 @@ pub async fn import_signature_handler(
     State(ctx): State<ApiContext>,
     link: Extension<Link>,
 ) -> Result<Json<ImportSignatureResponse>, ImportSignatureError> {
+    if link.provider != UserProvider::Gmail {
+        return Err(ImportSignatureError::UnsupportedProvider);
+    }
     let access_token = ctx
         .email_api
         .get_access_token(link.id, TokenFreshness::Fresh)

@@ -52,7 +52,7 @@ impl<A: MailboxAttachmentAccess> AttachmentBytes for ProviderAttachmentBytes<A> 
             .as_deref()
             .ok_or(AttachmentError::NotFound)?;
         match record.link.provider {
-            UserProvider::Gmail => self
+            UserProvider::Gmail | UserProvider::Stalwart => self
                 .gmail
                 .get_attachment(record.link.id, &record.message_provider_id, id)
                 .await

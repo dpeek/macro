@@ -65,7 +65,7 @@ use crate::config::{Config, DEFAULT_MCP_ALLOWED_REDIRECT_HOSTS};
 pub struct McpContext {
     pub jwt_args: JwtValidationArgs,
     pub tool_context: ToolServiceContext,
-    pub auth_proxy: McpAuthProxyServiceImpl<RedisInflightAuth>,
+    pub auth_proxy: Option<McpAuthProxyServiceImpl<RedisInflightAuth>>,
     pub mcp_public_host: String,
 }
 
@@ -132,7 +132,12 @@ pub async fn build_context(
     })
     .await?;
 
-    let auth_proxy = build_auth_proxy(config, &secretsmanager_client).await?;
+    let auth_proxy = if config.mcp_oauth_broker_enabled {
+        Some(build_auth_proxy(config, &secretsmanager_client).await?)
+    } else {
+        tracing::info!("MCP OAuth broker disabled; bearer authentication remains required");
+        None
+    };
 
     let mcp_public_host = http::Uri::try_from(config.mcp_public_url.as_ref())
         .context("MCP_PUBLIC_URL is not a valid URI")?
@@ -662,7 +667,11 @@ async fn build_auth_proxy(
     )
     .with_public_url(fusionauth_public_url);
 
-    let auth_provider = FusionAuthOAuthProvider::new(fusionauth_client)
+    let identity_provider_name = config
+        .mcp_fusionauth_identity_provider_name
+        .value()
+        .unwrap_or("google_gmail");
+    let auth_provider = FusionAuthOAuthProvider::new(fusionauth_client, identity_provider_name)
         .await
         .context("failed to initialize MCP auth provider")?;
     let redis_client = redis::Client::open(config.redis_url.as_ref().to_owned())

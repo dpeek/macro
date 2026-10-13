@@ -200,8 +200,8 @@ pub async fn remove_provider_link(
     link: &Link,
 ) {
     // Microsoft grants are revoked by the lifecycle outbox after the binding
-    // is frozen. Gmail owns an independent FusionAuth grant and watch.
-    if link.provider != UserProvider::Gmail {
+    // is frozen. Google and Stalwart own independent watches and cached grants.
+    if link.provider == UserProvider::Outlook {
         return;
     }
     // Best effort: revoked grants and provider failures must not block local teardown.
@@ -220,7 +220,7 @@ pub async fn remove_provider_link(
         .delete_gmail_access_token(&TokenCacheKey::new(
             link.fusionauth_user_id.clone(),
             link.email_address.0.as_ref(),
-            UserProvider::Gmail.as_str(),
+            link.provider.as_str(),
         ))
         .await
         .inspect_err(|e| {
@@ -231,14 +231,16 @@ pub async fn remove_provider_link(
     // remove google fusionauth link with gmail inbox permissions. best-effort: the FA user may
     // already be gone (e.g. account deleted before we delete their email), so we warn and keep
     // going rather than failing the message and retrying.
-    auth.remove_link(
-        &link.fusionauth_user_id,
-        link.email_address.0.as_ref(),
-        "google_gmail",
-    )
-    .await
-    .inspect_err(|e| {
-        tracing::warn!(error=?e, "Failed to remove FusionAuth IdP link");
-    })
-    .ok();
+    if link.provider == UserProvider::Gmail {
+        auth.remove_link(
+            &link.fusionauth_user_id,
+            link.email_address.0.as_ref(),
+            "google_gmail",
+        )
+        .await
+        .inspect_err(|e| {
+            tracing::warn!(error=?e, "Failed to remove FusionAuth IdP link");
+        })
+        .ok();
+    }
 }

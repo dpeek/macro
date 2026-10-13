@@ -1,10 +1,11 @@
 use crate::api::{
     context::ApiContext,
+    internal::stalwart_access_token::verified_access_token,
     login::sso::{SsoState, is_allowed_original_url, redact_original_url_for_logging},
     utils::{
         append_signed_up_param_if_new_user, create_access_token_cookie,
         create_refresh_token_cookie, default_redirect_url, generate_session_code,
-        spawn_first_inbox_provision,
+        provision_stalwart_inbox_on_login, spawn_first_inbox_provision,
     },
 };
 use axum::{
@@ -13,7 +14,10 @@ use axum::{
     http::{HeaderValue, StatusCode},
     response::{IntoResponse, Response},
 };
-use macro_auth::middleware::decode_jwt::decode_macro_access_token_allow_expired;
+use macro_auth::middleware::decode_jwt::{
+    decode_macro_access_token_allow_expired, validate_macro_access_token,
+};
+use macro_env_var::optional_read_env_var;
 use maud::{DOCTYPE, Markup, html};
 use model::response::ErrorResponse;
 use referral::domain::{models::ReferralCode, ports::ReferralService};
@@ -105,6 +109,44 @@ pub async fn handler(
         }
     };
 
+    // The Fog callback is the final boundary before a Macro session (or a
+    // mobile session code) is issued. A FusionAuth account alone is not enough.
+    let fog_stalwart_sso = optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .map_err(|error| {
+            tracing::error!(error=?error, "Unable to read Fog sign-in configuration");
+            StatusCode::SERVICE_UNAVAILABLE.into_response()
+        })?
+        .is_some();
+    if fog_stalwart_sso {
+        let claims =
+            validate_macro_access_token(&access_token, &ctx.jwt_args).map_err(|error| {
+                tracing::error!(error=?error, "Unable to validate Fog sign-in token");
+                StatusCode::INTERNAL_SERVER_ERROR.into_response()
+            })?;
+        match verified_access_token(&ctx.auth_client, &claims.fusion_user_id, &claims.email).await {
+            Ok(_) => {
+                macro_db_client::user::create_user::provision_verified_stalwart_user(
+                    &ctx.db,
+                    &claims.fusion_user_id,
+                    &claims.email,
+                )
+                .await
+                .map_err(|error| {
+                    tracing::error!(error=?error, "Unable to provision verified Stalwart user");
+                    StatusCode::INTERNAL_SERVER_ERROR.into_response()
+                })?;
+            }
+            Err(StatusCode::NOT_FOUND | StatusCode::FORBIDDEN) => {
+                tracing::warn!("Stalwart grant missing or invalid during Macro sign-in");
+                return Err(StatusCode::FORBIDDEN.into_response());
+            }
+            Err(status) => {
+                tracing::error!(%status, "Unable to verify Stalwart account during sign-in");
+                return Err(StatusCode::SERVICE_UNAVAILABLE.into_response());
+            }
+        }
+    }
+
     let write_db = async |code: &SessionCode| {
         ctx.macro_cache_client
             .set_mobile_login_session(code.0.as_str(), &refresh_token)
@@ -176,7 +218,11 @@ pub async fn handler(
     cookies.add(create_access_token_cookie(&access_token));
     cookies.add(create_refresh_token_cookie(&refresh_token));
 
-    spawn_first_inbox_provision(&ctx, &access_token);
+    if fog_stalwart_sso {
+        provision_stalwart_inbox_on_login(&ctx, &access_token).await;
+    } else {
+        spawn_first_inbox_provision(&ctx, &access_token);
+    }
 
     Ok(html_redirect(&redirect_url).into_response())
 }

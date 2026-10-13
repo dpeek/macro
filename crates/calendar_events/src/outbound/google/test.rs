@@ -1,6 +1,9 @@
 use super::*;
+use crate::domain::models::CalendarProvider;
 
 mod points;
+
+mod stalwart;
 
 #[test]
 fn calendar_access_role_is_reflected_on_mapped_events() {
@@ -1513,7 +1516,12 @@ async fn keyed_create_recovers_lost_response_and_duplicate_conflict_without_seco
         )
             .into_response()
     }
-    for insert_status in [StatusCode::SERVICE_UNAVAILABLE, StatusCode::CONFLICT] {
+    for (provider, insert_status) in [
+        (CalendarProvider::Google, StatusCode::SERVICE_UNAVAILABLE),
+        (CalendarProvider::Google, StatusCode::CONFLICT),
+        (CalendarProvider::Stalwart, StatusCode::SERVICE_UNAVAILABLE),
+        (CalendarProvider::Stalwart, StatusCode::CONFLICT),
+    ] {
         let remote = Remote {
             event: Default::default(),
             posts: Default::default(),
@@ -1522,9 +1530,19 @@ async fn keyed_create_recovers_lost_response_and_duplicate_conflict_without_seco
         let app = Router::new()
             .route("/calendars/primary/events", post(insert))
             .route("/calendars/primary/events/{id}", get(read))
+            .route("/calendar/v3/calendars/primary/events", post(insert))
+            .route("/calendar/v3/calendars/primary/events/{id}", get(read))
             .with_state(remote.clone());
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
-        let endpoint = format!("http://{}", listener.local_addr().unwrap());
+        let endpoint = format!(
+            "http://{}{}",
+            listener.local_addr().unwrap(),
+            if provider == CalendarProvider::Stalwart {
+                "/calendar/v3"
+            } else {
+                ""
+            }
+        );
         let task = tokio::spawn(async move {
             axum::serve(listener, app).await.unwrap();
         });

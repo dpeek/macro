@@ -18,6 +18,9 @@ pub mod pg;
 /// PostgreSQL facts for team-calendar sharing.
 #[cfg(feature = "postgres")]
 pub mod pg_team;
+/// Select the calendar HTTP backend from the linked account.
+#[cfg(all(feature = "google", feature = "postgres"))]
+pub mod routed;
 /// SQS calendar reminder dispatch queue.
 #[cfg(feature = "dispatch-sqs")]
 pub mod sqs_dispatch_queue;

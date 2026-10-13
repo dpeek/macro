@@ -35,7 +35,13 @@ export function toCalendarAccounts(
   userId: string | undefined
 ): CalendarAccount[] {
   return links
-    .filter((link) => link.macro_id === userId)
+    .filter(
+      (link) =>
+        link.macro_id === userId &&
+        (link.provider !== 'STALWART' ||
+          link.needs_calendar_permission ||
+          link.needs_reauth)
+    )
     .sort((a, b) => Number(b.is_primary) - Number(a.is_primary))
     .map((link) => ({
       linkId: link.id,

@@ -117,6 +117,13 @@ fn bot_receipt(document_id: &str) -> EntityAccessReceipt<ViewAccessLevel> {
 struct TestUploadUrlPort;
 
 impl PresignedUploadUrlPort for TestUploadUrlPort {
+    async fn get_document_storage_presigned_url(
+        &self,
+        _key: &str,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
     async fn put_document_storage_presigned_url(
         &self,
         _key: &str,
@@ -2187,6 +2194,13 @@ struct RecordingUploadUrlPort {
 }
 
 impl PresignedUploadUrlPort for RecordingUploadUrlPort {
+    async fn get_document_storage_presigned_url(
+        &self,
+        _key: &str,
+    ) -> anyhow::Result<Option<String>> {
+        Ok(None)
+    }
+
     async fn put_document_storage_presigned_url(
         &self,
         _key: &str,

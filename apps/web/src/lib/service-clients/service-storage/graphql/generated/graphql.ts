@@ -978,7 +978,9 @@ export type GraphqlEmailProvider =
   /** Google Gmail. */
   | 'GMAIL'
   /** Microsoft Outlook and Microsoft 365. */
-  | 'OUTLOOK';
+  | 'OUTLOOK'
+  /** Stalwart mail. */
+  | 'STALWART';
 
 /** GraphQL input representing the email value. */
 export type GraphqlEmailValue =

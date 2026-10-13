@@ -2,13 +2,24 @@ use authentication_service_client::error::AuthServiceClientError;
 use email_api_client::domain::models::{TokenError, TokenFreshness};
 use email_api_client::domain::ports::ProviderTokenSource;
 use macro_db_migrator::MACRO_DB_MIGRATIONS;
+use models_email::service::link::UserProvider;
 use sqlx::PgPool;
 use uuid::Uuid;
 
 use super::{
     StaticTokenSource, TokenHealthAction, clear_stale_reauth_flag, map_token_acquisition_error,
-    token_health_action,
+    require_gmail_compatible, token_health_action,
 };
+
+#[test]
+fn gmail_compatible_token_source_accepts_gmail_and_stalwart_only() {
+    assert!(require_gmail_compatible(UserProvider::Gmail).is_ok());
+    assert!(require_gmail_compatible(UserProvider::Stalwart).is_ok());
+    assert!(matches!(
+        require_gmail_compatible(UserProvider::Outlook),
+        Err(TokenError::Permanent { .. })
+    ));
+}
 
 async fn insert_link_needing_reauth(pool: &PgPool) -> Uuid {
     let link_id = Uuid::now_v7();

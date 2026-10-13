@@ -3731,6 +3731,10 @@ enum GraphqlEmailProvider {
 	Microsoft Outlook and Microsoft 365.
 	"""
 	OUTLOOK
+	"""
+	Stalwart mail.
+	"""
+	STALWART
 }
 
 """

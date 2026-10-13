@@ -1,8 +1,8 @@
 #![recursion_limit = "256"]
 use anyhow::Context;
 use document_storage_service_client::DocumentStorageServiceClient;
-use email_api_client::GmailApiClientRepository;
 use email_service::config::Config;
+use email_service::mailbox_provider;
 use email_service::outbound::email_api::{
     EmailServiceTokenSource, GmailApi, RateBudget, RedisProviderRateLimiter,
 };
@@ -34,12 +34,12 @@ fn compose_email_api(
     redis_conn: redis::aio::MultiplexedConnection,
     sqs_client: sqs_client::SQS,
     rate_budget: RateBudget,
-) -> GmailApi {
-    GmailApi::new(
-        GmailApiClientRepository::from_subscription_topic(subscription_topic),
+) -> anyhow::Result<GmailApi> {
+    Ok(GmailApi::new(
+        mailbox_provider::repository(subscription_topic)?,
         EmailServiceTokenSource::new(db, redis_conn, auth_service_client, sqs_client),
         RedisProviderRateLimiter::new(redis_client, rate_budget),
-    )
+    ))
 }
 
 #[tokio::main]
@@ -291,7 +291,7 @@ async fn main() -> anyhow::Result<()> {
         redis_conn.clone(),
         sqs_client.clone(),
         RateBudget::Live,
-    );
+    )?;
     let outlook_repository = email_api_client::OutlookApiClientRepository::with_gate(Arc::new(
         email_service::outbound::email_api::RedisMicrosoftRequestGate(redis_conn.clone()),
     ))?;
@@ -325,7 +325,7 @@ async fn main() -> anyhow::Result<()> {
         redis_conn,
         sqs_client.clone(),
         RateBudget::Backfill,
-    );
+    )?;
 
     let sfs_client = StaticFileServiceClient::new(
         config.internal_api_key.to_string(),

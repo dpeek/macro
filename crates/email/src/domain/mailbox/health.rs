@@ -71,7 +71,9 @@ impl<R: InboxHealthRepository, G: InboxHealthGateway> InboxHealthService<R, G> {
         };
         match self.gateway.acquire(&binding, freshness).await {
             Ok(_) if refresh => match binding.link.provider {
-                UserProvider::Gmail => self.gateway.refresh_gmail(&binding.link).await,
+                UserProvider::Gmail | UserProvider::Stalwart => {
+                    self.gateway.refresh_gmail(&binding.link).await
+                }
                 UserProvider::Outlook => self.repository.wake_streams(&binding).await,
             },
             Ok(_) => Ok(()),

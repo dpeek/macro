@@ -320,6 +320,12 @@ pub trait DocumentRepo: Send + Sync + 'static {
 
 /// Port for generating S3 presigned upload URLs and direct S3 storage operations.
 pub trait PresignedUploadUrlPort: Send + Sync + 'static {
+    /// Return a private object-read URL when this storage adapter serves reads directly.
+    fn get_document_storage_presigned_url(
+        &self,
+        key: &str,
+    ) -> impl Future<Output = anyhow::Result<Option<String>>> + Send;
+
     /// Generate a presigned URL for uploading to the document storage bucket.
     fn put_document_storage_presigned_url(
         &self,

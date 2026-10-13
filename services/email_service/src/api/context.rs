@@ -4,7 +4,7 @@ use crate::calendar_tokens::CalendarTokenProviderAdapter;
 use axum::extract::FromRef;
 use calendar_events::{
     domain::{mutations::CalendarMutationServiceImpl, service::CalendarService},
-    outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
+    outbound::{pg::PgCalendarRepository, routed::RoutedCalendarClient},
 };
 use document_storage_service_client::DocumentStorageServiceClient;
 use email::{
@@ -39,7 +39,7 @@ pub(crate) type CalendarGrantService = CalendarService<PgCalendarRepository>;
 pub(crate) type CalendarMutationSvc = CalendarMutationServiceImpl<
     PgCalendarRepository,
     calendar_events::domain::providers::CalendarProviders<
-        GoogleCalendarClient<RedisCalendarRequestGate>,
+        RoutedCalendarClient<RedisCalendarRequestGate>,
         email_api_client::OutlookApiClientRepository,
     >,
     CalendarTokenProviderAdapter,

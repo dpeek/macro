@@ -1,13 +1,12 @@
 import { toast } from '@core/component/Toast/Toast';
 import { isMobile } from '@core/mobile/isMobile';
 import { ThrownResultError } from '@core/util/result';
-import { useEmailSignature } from '@queries/email/link';
+import { type EmailLink, useEmailSignature } from '@queries/email/link';
 import {
+  SIGNATURE_IMAGES_UNRESOLVED_CODE,
   useImportGmailSignatureMutation,
   useUpdateEmailSettingsMutation,
 } from '@queries/email/settings';
-import { SIGNATURE_IMAGES_UNRESOLVED_CODE } from '@service-email/client';
-import type { Link as EmailLink } from '@service-email/generated/schemas';
 import { createSignal } from 'solid-js';
 import { SignatureForm } from './components/signature-form';
 
@@ -167,7 +166,7 @@ export function SignatureSection(props: { link: EmailLink }) {
       }}
       onSave={saveSignature}
       onClear={removeSignature}
-      onImport={importFromGmail}
+      onImport={props.link.provider === 'GMAIL' ? importFromGmail : undefined}
       importing={importGmailSignature.isPending}
       dirty={isDirty()}
       hasContent={hasContent()}

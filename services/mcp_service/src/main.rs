@@ -1,8 +1,9 @@
 //! MCP server binary that serves the DCS AI toolset over HTTP.
 //!
 //! This binary spins up a Streamable HTTP MCP server exposing the same
-//! tools that are available in the DCS chat/stream API, with OAuth 2.1
-//! authentication backed by FusionAuth.
+//! tools that are available in the DCS chat/stream API. Public deployments
+//! use OAuth 2.1 backed by FusionAuth; private deployments accept Macro bearer
+//! tokens without starting the OAuth broker.
 
 mod config;
 mod context;
@@ -14,7 +15,7 @@ use config::Config;
 use context::build_context;
 use macro_entrypoint::MacroEntrypoint;
 use mcp_auth_proxy::domain::service::McpAuthProxyService;
-use mcp_auth_proxy::inbound::axum_router::mcp_router;
+use mcp_auth_proxy::inbound::axum_router::{internal_mcp_router, mcp_router};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -42,6 +43,10 @@ async fn main() -> anyhow::Result<()> {
     let event_broker_tracker = TaskTracker::new();
     let context = build_context(&config, event_broker_tracker.clone()).await?;
 
+    let auth_proxy = context.auth_proxy.clone();
+    let jwt_args = context.jwt_args.clone();
+    let mcp_public_host = context.mcp_public_host.clone();
+
     // Create the MCP service with authenticated tool handler
     let mcp_service = StreamableHttpService::new(
         move || {
@@ -56,9 +61,10 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(LocalSessionManager::default()),
         {
             let mut config = StreamableHttpServerConfig::default().with_allowed_hosts([
-                context.mcp_public_host.clone(),
+                mcp_public_host,
                 "localhost".into(),
                 "127.0.0.1".into(),
+                "mcp-service".into(),
                 "gateway.macro.com".into(),
                 "dev-gateway.macro.com".into(),
             ]);
@@ -68,19 +74,22 @@ async fn main() -> anyhow::Result<()> {
         },
     );
 
-    // Spawn background cleanup for expired OAuth entries
-    let cleanup_state = context.auth_proxy.clone();
-    tokio::spawn(async move {
-        let mut interval = tokio::time::interval(AUTH_PROXY_CLEANUP_INTERVAL);
-        loop {
-            interval.tick().await;
-            if let Err(error) = cleanup_state.cleanup_expired().await {
-                tracing::error!(error=?error, "auth proxy cleanup task failed");
+    let app = if let Some(auth_proxy) = auth_proxy {
+        // Spawn background cleanup for expired OAuth entries.
+        let cleanup_state = auth_proxy.clone();
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(AUTH_PROXY_CLEANUP_INTERVAL);
+            loop {
+                interval.tick().await;
+                if let Err(error) = cleanup_state.cleanup_expired().await {
+                    tracing::error!(error=?error, "auth proxy cleanup task failed");
+                }
             }
-        }
-    });
-
-    let app = mcp_router(context.auth_proxy, context.jwt_args, mcp_service);
+        });
+        mcp_router(auth_proxy, jwt_args, mcp_service)
+    } else {
+        internal_mcp_router(jwt_args, mcp_service)
+    };
 
     let port = config.port;
     let addr = format!("0.0.0.0:{port}");

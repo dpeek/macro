@@ -3,7 +3,7 @@ import { unwatchFile, watchFile } from 'node:fs';
 import { resolve } from 'node:path';
 import tailwind from '@tailwindcss/vite';
 import { Features } from 'lightningcss';
-import type { Plugin, Rollup, UserConfigFn } from 'vite';
+import { loadEnv, type Plugin, type Rollup, type UserConfigFn } from 'vite';
 import solid from 'vite-plugin-solid';
 import solidSvg from 'vite-plugin-solid-svg';
 import wasm from 'vite-plugin-wasm';
@@ -307,6 +307,11 @@ export const createAppViteConfig = (): UserConfigFn => {
   return ({ command, mode }) => {
     const ENV_MODE = process.env.MODE ?? mode;
     const NO_MINIFY = process.env.NO_MINIFY === 'true';
+    const gatewayOriginOverride = loadEnv(
+      ENV_MODE,
+      process.cwd(),
+      'VITE_'
+    ).VITE_GATEWAY_ORIGIN;
 
     return {
       base: command === 'serve' ? '/' : '/app',
@@ -338,7 +343,7 @@ export const createAppViteConfig = (): UserConfigFn => {
         cloudFrontCompressionLimit(),
         posthogSourceMapLimit(),
       ],
-      define: defineEnv(ENV_MODE, command),
+      define: defineEnv(ENV_MODE, command, gatewayOriginOverride),
       clearScreen: false,
       worker: {
         format: 'es',
@@ -487,7 +492,11 @@ function getAssetsPath(mode: string, command: string): string {
   }
 }
 
-function defineEnv(mode: string, command: string) {
+function defineEnv(
+  mode: string,
+  command: string,
+  gatewayOriginOverride: string | undefined
+) {
   // `vite build` compiles DEV from NODE_ENV, not MODE. Local-backend static
   // bundles already set VITE_LOCAL_BACKEND_ORIGIN (stack up);
   // keep DEV so those artifacts match `just run_local` (vite serve). Hosted
@@ -503,9 +512,10 @@ function defineEnv(mode: string, command: string) {
     'import.meta.env.ASSETS_PATH': JSON.stringify(getAssetsPath(mode, command)),
     // index.html preconnects to the API gateway; keep in sync with servers.ts.
     'import.meta.env.GATEWAY_ORIGIN': JSON.stringify(
-      mode === 'development'
-        ? 'https://dev-gateway.macro.com'
-        : 'https://gateway.macro.com'
+      gatewayOriginOverride?.replace(/\/$/, '') ||
+        (mode === 'development'
+          ? 'https://dev-gateway.macro.com'
+          : 'https://gateway.macro.com')
     ),
     'import.meta.env.__LOCAL_DOCKER__': process.env.LOCAL_DOCKER === 'true',
     'import.meta.env.__LOCAL_JWT__': JSON.stringify(process.env.LOCAL_JWT),

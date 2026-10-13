@@ -263,7 +263,9 @@ impl<R: MailboxSettingsRepository, G: MailboxSettingsGateway> MailboxSettingsSer
         let mailbox = self.repository.accessible(actor, link).await?;
         let intents = self.repository.sender_intents(mailbox).await?;
         let mut result = match mailbox.provider {
-            UserProvider::Gmail => self.gateway.gmail_blocked(mailbox).await?,
+            UserProvider::Gmail | UserProvider::Stalwart => {
+                self.gateway.gmail_blocked(mailbox).await?
+            }
             UserProvider::Outlook => self
                 .gateway
                 .sender_rules(mailbox)
@@ -375,7 +377,12 @@ impl<R: MailboxSettingsRepository, G: MailboxSettingsGateway> MailboxSettingsSer
                     .await?;
                 self.repository.finish_settings(lease, true, 0, None).await
             }
-            "sender_block" if lease.mailbox.provider == UserProvider::Gmail => {
+            "sender_block"
+                if matches!(
+                    lease.mailbox.provider,
+                    UserProvider::Gmail | UserProvider::Stalwart
+                ) =>
+            {
                 self.gateway
                     .gmail_set_block(lease.mailbox, &lease.resource, lease.desired)
                     .await?;
