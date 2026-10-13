@@ -3,7 +3,7 @@
 //! Drains calendar's own backfill queue, resolves the connected inbox's grant,
 //! and drives the Google Calendar backfill coordinator. Modeled on the calendar
 //! branch of email_service's backfill worker, but self-contained: tokens come
-//! from [`google_token`] rather than the Gmail provider stack.
+//! from the selected provider's existing authentication path.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -11,8 +11,8 @@ use std::time::Duration;
 use authentication_service_client::{AuthServiceClient, error::AuthServiceClientError};
 use calendar_events::domain::{
     models::{
-        CalendarBackfillFailureDisposition, CalendarBackfillJobKey, GoogleBackfillRunReport,
-        GoogleWatchConfig, OccurrenceRange,
+        CalendarBackfillFailureDisposition, CalendarBackfillJobKey, CalendarProvider,
+        GoogleBackfillRunReport, GoogleScopeSet, GoogleWatchConfig, OccurrenceRange,
     },
     service::{
         CalendarReauthAnnouncer, GoogleCalendarBackfillCoordinator,
@@ -67,6 +67,7 @@ pub struct CalendarBackfillContext {
     reauth: Arc<CalendarReauth>,
     calendar_sync_enabled: bool,
     team_sharing_enabled: bool,
+    provider: CalendarProvider,
 }
 
 impl CalendarBackfillContext {
@@ -84,16 +85,20 @@ impl CalendarBackfillContext {
         watch: Option<GoogleWatchConfig>,
         calendar_sync_enabled: bool,
         team_sharing_enabled: bool,
+        provider: CalendarProvider,
+        api_base: &str,
     ) -> Self {
-        let repository = PgCalendarRepository::new(db.clone());
+        let repository = PgCalendarRepository::with_provider(db.clone(), provider);
         let coordinator = Arc::new(GoogleCalendarBackfillCoordinator::new(
             repository.clone(),
-            GoogleCalendarClient::with_gate(
+            GoogleCalendarClient::with_gate_for_provider(
                 reqwest::Client::builder()
                     .timeout(Duration::from_secs(30))
                     .build()
                     .expect("calendar client configuration is valid"),
                 RedisCalendarRequestGate::new(rate_limiter),
+                provider,
+                api_base,
             ),
             repository.clone(),
             macro_event_broker,
@@ -112,6 +117,7 @@ impl CalendarBackfillContext {
             reauth,
             calendar_sync_enabled,
             team_sharing_enabled,
+            provider,
         }
     }
 }
@@ -264,13 +270,30 @@ async fn google_backfill(
         link.email_address.0.as_ref(),
         link.provider.as_str(),
     );
-    let access_token = match google_token::fetch_gmail_access_token_no_cache(
-        &key,
-        &ctx.redis_conn,
-        &ctx.auth_service_client,
-    )
-    .await
-    {
+    let token_result = match ctx.provider {
+        CalendarProvider::Google => {
+            google_token::fetch_gmail_access_token_no_cache(
+                &key,
+                &ctx.redis_conn,
+                &ctx.auth_service_client,
+            )
+            .await
+        }
+        CalendarProvider::Stalwart => ctx
+            .auth_service_client
+            .get_stalwart_access_token(&link.fusionauth_user_id, link.email_address.0.as_ref())
+            .await
+            .map_err(anyhow::Error::from)
+            .and_then(|token| {
+                let scopes = GoogleScopeSet::parse(token.scope.as_deref().unwrap_or_default());
+                if scopes.has_calendar_capability_for(CalendarProvider::Stalwart) {
+                    Ok(token.access_token)
+                } else {
+                    Err(AuthServiceClientError::Forbidden.into())
+                }
+            }),
+    };
+    let access_token = match token_result {
         Ok(token) => token,
         Err(error) => {
             if is_reauth_required_error(&error) {

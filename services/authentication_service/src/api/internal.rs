@@ -13,10 +13,15 @@ mod google_access_token;
 mod post_get_existing_users;
 mod relocate_inbox_grant;
 mod remove_link;
+pub(in crate::api) mod stalwart_access_token;
 
 pub fn router() -> Router<ApiContext> {
     Router::new()
         .route("/google_access_token", get(google_access_token::handler))
+        .route(
+            "/stalwart_access_token",
+            get(stalwart_access_token::handler),
+        )
         .route("/get_names", post(post_get_names::handler_internal))
         .route("/get_existing_users", get(post_get_existing_users::handler))
         .route("/remove_link", delete(remove_link::handler))

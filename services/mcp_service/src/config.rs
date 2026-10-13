@@ -91,6 +91,10 @@ env_vars! {
 #[derive(macro_config::MacroConfig)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub struct Config {
+    /// Disable the OAuth broker for private deployments that authenticate MCP
+    /// requests with short-lived Macro bearer tokens supplied by the harness.
+    #[macro_config_default(true)]
+    pub mcp_oauth_broker_enabled: bool,
     /// Default-off quota admission and prospective usage counting.
     #[macro_config_default(ai_usage::AiUsageEnforcement::Disabled)]
     pub enable_ai_usage_enforcement: ai_usage::AiUsageEnforcement,

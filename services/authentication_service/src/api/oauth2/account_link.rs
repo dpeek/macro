@@ -50,7 +50,7 @@ impl IntoResponse for CallbackRedirectError {
 /// if the replacement fails. Deactivated stub users are activated only for the
 /// swap and then returned to their previous state.
 #[tracing::instrument(skip(auth_client, display_name, fresh_refresh_token), err(Debug))]
-pub(super) async fn replace_identity_provider_grant(
+pub(in crate::api) async fn replace_identity_provider_grant(
     auth_client: &FusionAuthClient,
     identity_provider_id: &str,
     link_owner_id: &str,

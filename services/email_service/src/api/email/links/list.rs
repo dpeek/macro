@@ -71,7 +71,7 @@ pub async fn list_links_handler(
                 !calendar_events::domain::models::GoogleScopeSet::from_scopes(
                     inbox.google_granted_scopes,
                 )
-                .has_calendar_capability();
+                .has_calendar_capability_for(ctx.calendar_provider);
             api::link::Link::new(
                 inbox.link,
                 api::settings::Settings::from(inbox.settings),

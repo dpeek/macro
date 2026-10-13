@@ -163,6 +163,14 @@ fn base_command(ws: &Path, zig_cache: &Path, jobs: &str, target: Target) -> Comm
         .env("ZIG_LOCAL_CACHE_DIR", zig_cache)
         .env("RUSTC_WRAPPER", "sccache")
         .env("XDG_CACHE_HOME", zig_cache);
+    // On macOS, Cargo's no-debug-info build dependencies can get
+    // `-C strip=debuginfo`. Rust 1.94's LLVM Mach-O objcopy may then move a
+    // proc macro's LINKEDIT string table to a 4-byte boundary, which macOS 27
+    // refuses to load. Keep the Linux service binaries at debug=0; only avoid
+    // stripping host build dependencies (including proc macros).
+    if cfg!(target_os = "macos") {
+        cmd.env("CARGO_PROFILE_DEV_BUILD_OVERRIDE_STRIP", "none");
+    }
     // No CFLAGS here. The dev shell already exports target-scoped
     // `CFLAGS_<triple>`/`CXXFLAGS_<triple>` pointing at curl.dev for exactly
     // this cross build (see `nix/cloud-storage.nix`). Setting our own spelling

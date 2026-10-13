@@ -191,6 +191,9 @@ pub struct Config {
     /// `DEVELOPMENT_SIGNUP_ALLOWLIST_JSON`. Production and Local ignore it.
     #[macro_config_default(false)]
     pub development_bypass_signup_allowlist: bool,
+    /// Create a private Macro support channel for each new account.
+    #[macro_config_default(true)]
+    pub create_support_channel_on_signup: bool,
     /// Stripe promotion code applied at checkout for accounts that signed up
     /// through a GTM invite link (optional, defaults to `1MF`).
     pub gtm_invite_promo_code: GtmInvitePromoCode,

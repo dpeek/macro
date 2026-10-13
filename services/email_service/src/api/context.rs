@@ -3,7 +3,9 @@ use crate::calendar_request_gate::RedisCalendarRequestGate;
 use crate::calendar_tokens::CalendarTokenProviderAdapter;
 use axum::extract::FromRef;
 use calendar_events::{
-    domain::{mutations::CalendarMutationServiceImpl, service::CalendarService},
+    domain::{
+        models::CalendarProvider, mutations::CalendarMutationServiceImpl, service::CalendarService,
+    },
     outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
 };
 use document_storage_service_client::DocumentStorageServiceClient;
@@ -60,6 +62,7 @@ pub(crate) type EmailSvc = EmailServiceImpl<
 
 #[derive(Clone, FromRef)]
 pub(crate) struct ApiContext {
+    pub calendar_provider: CalendarProvider,
     pub invitation_snapshots: email::outbound::invitation_pg::InvitationPgRepository,
     pub invitation_resolver: Arc<
         calendar_events::domain::invitations::CalendarInvitationResolver<

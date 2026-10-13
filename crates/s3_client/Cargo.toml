@@ -11,3 +11,9 @@ base64 = { workspace = true }
 hex = { workspace = true }
 tracing = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
+
+[dev-dependencies]
+macro_aws_config = { path = "../macro_aws_config", features = ["s3"] }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+tokio = { workspace = true }

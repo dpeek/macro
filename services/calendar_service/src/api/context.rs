@@ -1,7 +1,9 @@
 use std::sync::Arc;
 
 use calendar_events::{
-    domain::{mutations::CalendarMutationServiceImpl, service::CalendarService},
+    domain::{
+        models::CalendarProvider, mutations::CalendarMutationServiceImpl, service::CalendarService,
+    },
     outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
 };
 use macro_authorization::{
@@ -49,6 +51,8 @@ pub type CalendarMutationSvc = CalendarMutationServiceImpl<
 pub struct ApiContext {
     /// Resolved service configuration.
     pub config: Arc<Config>,
+    /// Backend selected for calendar requests and route availability.
+    pub calendar_provider: CalendarProvider,
     /// Authorization state for authenticated mutation routes.
     pub authorization_state: MacroAuthorizationState<AuthorizationService>,
     /// Calendar grant/watch service backing the push webhook.

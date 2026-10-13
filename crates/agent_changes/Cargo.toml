@@ -52,6 +52,8 @@ uuid = { workspace = true }
 workspace-hack = { version = "0.1", path = "../workspace-hack" }
 
 [dev-dependencies]
+macro_aws_config = { path = "../macro_aws_config", features = ["s3"] }
+github_pull_requests = { path = "../github_pull_requests", default-features = false, features = ["s3"] }
 agent_session = { path = "../agent_session", default-features = false, features = ["test-utils"] }
 bot_id = { path = "../bot_id", features = ["test-utils"] }
 macro_db_migrator = { path = "../macro_db_migrator" }

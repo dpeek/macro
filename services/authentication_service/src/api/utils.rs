@@ -177,3 +177,15 @@ pub fn spawn_first_inbox_provision(ctx: &ApiContext, access_token: &str) {
         }
     });
 }
+
+/// Attempts to connect the verified Stalwart mailbox before returning from
+/// sign-in. A failed attempt is logged and retried on the next sign-in.
+pub async fn provision_stalwart_inbox_on_login(ctx: &ApiContext, access_token: &str) {
+    if let Err(error) = ctx
+        .email_service_client
+        .provision_stalwart_inbox(access_token)
+        .await
+    {
+        tracing::warn!(error=?error, "Stalwart inbox provisioning failed");
+    }
+}

@@ -4,6 +4,7 @@ use axum::{
     http::StatusCode,
     response::{IntoResponse, Response},
 };
+use macro_env_var::optional_read_env_var;
 use macro_middleware::tracking::ClientIp;
 
 use std::borrow::Cow;
@@ -43,6 +44,14 @@ pub async fn handler(
     extract::Json(req): extract::Json<PasswordlessRequest>,
 ) -> Result<Response, Response> {
     tracing::info!("passwordless_login_request");
+
+    if optional_read_env_var("FOG_STALWART_SSO_CLIENT_ID")
+        .ok()
+        .flatten()
+        .is_some()
+    {
+        return Err((StatusCode::FORBIDDEN, "Sign in with Stalwart").into_response());
+    }
 
     if !email_validator::is_valid_email(&req.email) {
         tracing::error!(email=%req.email, "invalid email");

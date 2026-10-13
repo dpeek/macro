@@ -12,11 +12,12 @@ use crate::domain::{
     models::{
         ActorInboxes, AttendeeResponseStatus, CalendarAttendee, CalendarAttendeeInput,
         CalendarEvent, CalendarEventDraft, CalendarEventOverride, CalendarEventPatch,
-        CalendarEventSource, CalendarEventUpsert, CalendarOccurrence, ConferenceChange,
-        ConferenceProvider, EventReminderOverride, EventReminders, EventStart, EventStatus,
-        EventTime, EventTransparency, EventType, EventVisibility, GoogleCalendarTarget,
-        GoogleEventSource, GoogleEventSyncBatch, GoogleSyncPlan, GoogleWatchChannel,
-        GoogleWatchConfig, OccurrenceRange, OutOfOfficeProperties, ProviderCalendar,
+        CalendarEventSource, CalendarEventUpsert, CalendarOccurrence, CalendarProvider,
+        ConferenceChange, ConferenceProvider, EventReminderOverride, EventReminders, EventStart,
+        EventStatus, EventTime, EventTransparency, EventType, EventVisibility,
+        GoogleCalendarTarget, GoogleEventSource, GoogleEventSyncBatch, GoogleSyncPlan,
+        GoogleWatchChannel, GoogleWatchConfig, OccurrenceRange, OutOfOfficeProperties,
+        ProviderCalendar,
     },
     ports::{
         CalendarRsvpScope, GoogleCalendarMutationProvider, GoogleCalendarProvider,
@@ -58,6 +59,7 @@ pub struct GoogleCalendarClient<G = UnmeteredGate> {
     client: Client,
     gate: G,
     api_base: String,
+    provider: CalendarProvider,
 }
 
 impl GoogleCalendarClient<UnmeteredGate> {
@@ -67,6 +69,7 @@ impl GoogleCalendarClient<UnmeteredGate> {
             client,
             gate: UnmeteredGate,
             api_base: GOOGLE_CALENDAR_API.into(),
+            provider: CalendarProvider::Google,
         }
     }
 }
@@ -74,10 +77,21 @@ impl GoogleCalendarClient<UnmeteredGate> {
 impl<G: GoogleRequestGate> GoogleCalendarClient<G> {
     /// Construct a client whose requests must pass the supplied quota gate.
     pub fn with_gate(client: Client, gate: G) -> Self {
+        Self::with_gate_for_provider(client, gate, CalendarProvider::Google, GOOGLE_CALENDAR_API)
+    }
+
+    /// Use the selected backend's Google-shaped calendar contract.
+    pub fn with_gate_for_provider(
+        client: Client,
+        gate: G,
+        provider: CalendarProvider,
+        api_base: impl Into<String>,
+    ) -> Self {
         Self {
             client,
             gate,
-            api_base: GOOGLE_CALENDAR_API.into(),
+            api_base: api_base.into(),
+            provider,
         }
     }
 

@@ -311,6 +311,7 @@ async fn list_queries_admit_left_edge_points_and_incremental_tokens_keep_their_q
         client: Client::new(),
         gate: UnmeteredGate,
         api_base: endpoint,
+        provider: CalendarProvider::Google,
     };
     let target = target();
     let batch = client

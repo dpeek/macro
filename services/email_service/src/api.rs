@@ -17,6 +17,7 @@ pub(crate) mod context;
 pub(crate) mod gmail;
 mod internal;
 mod middleware;
+mod stalwart;
 pub(crate) mod swagger;
 
 #[cfg(test)]
@@ -73,5 +74,10 @@ fn api_router(state: ApiContext) -> Router<ApiContext> {
         )
         .nest("/email", email::router(state))
         .nest("/gmail", gmail::router())
+        .route(
+            "/stalwart/automatic-link",
+            axum::routing::post(stalwart::start_automatic),
+        )
+        .route("/stalwart/webhook", axum::routing::post(stalwart::webhook))
         .nest("/internal", internal::router())
 }

@@ -3,6 +3,7 @@ use crate::api::email::links::access::{InboxAccess, InboxActionError, authorize_
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use calendar_events::domain::models::CalendarProvider;
 use calendar_events::domain::ports::{CalendarMutationError, CalendarMutationService};
 use macro_authorization::{MacroAuthorizationExtractor, UserOrInternal};
 use model::response::{EmptyResponse, ErrorResponse};
@@ -39,6 +40,9 @@ pub async fn disable_link_calendar_handler(
     authorization: MacroAuthorizationExtractor<AuthorizationService, UserOrInternal>,
     Path(link_id): Path<Uuid>,
 ) -> Result<Response, InboxActionError> {
+    if ctx.calendar_provider == CalendarProvider::Stalwart {
+        return Err(InboxActionError::NotFound);
+    }
     let macro_user_id = &authorization.authorization.user.macro_user_id;
     let (_, access) = authorize_inbox_access(&ctx, macro_user_id.as_ref(), link_id).await?;
     if access == InboxAccess::Delegated {

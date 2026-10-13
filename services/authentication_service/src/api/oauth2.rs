@@ -10,7 +10,7 @@ use axum::{Router, extract::State, routing::get};
 use tower_cookies::CookieManagerLayer;
 use url::Url;
 
-mod account_link;
+pub(in crate::api) mod account_link;
 mod github;
 mod google;
 mod login;

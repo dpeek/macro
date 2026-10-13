@@ -19,6 +19,7 @@ pub struct S3UploadUrlAdapter {
     client: aws_sdk_s3::Client,
     document_storage_bucket: String,
     docx_upload_bucket: String,
+    s3_read_url_expiry: Option<Duration>,
 }
 
 impl S3UploadUrlAdapter {
@@ -32,11 +33,36 @@ impl S3UploadUrlAdapter {
             client,
             document_storage_bucket: document_storage_bucket.into(),
             docx_upload_bucket: docx_upload_bucket.into(),
+            s3_read_url_expiry: None,
         }
+    }
+
+    /// Use S3 presigned GET URLs for private browser reads instead of CloudFront.
+    pub fn with_s3_read_urls(mut self, expiry: Duration) -> Self {
+        self.s3_read_url_expiry = Some(expiry);
+        self
     }
 }
 
 impl PresignedUploadUrlPort for S3UploadUrlAdapter {
+    #[tracing::instrument(skip(self), err)]
+    async fn get_document_storage_presigned_url(
+        &self,
+        key: &str,
+    ) -> anyhow::Result<Option<String>> {
+        let Some(expiry) = self.s3_read_url_expiry else {
+            return Ok(None);
+        };
+        let presigned = self
+            .client
+            .get_object()
+            .bucket(&self.document_storage_bucket)
+            .key(key)
+            .presigned(PresigningConfig::expires_in(expiry)?)
+            .await?;
+        Ok(Some(macro_aws_config::transform_aws_url(presigned.uri())))
+    }
+
     #[tracing::instrument(skip(self), err)]
     async fn put_document_storage_presigned_url(
         &self,
@@ -73,7 +99,7 @@ impl PresignedUploadUrlPort for S3UploadUrlAdapter {
 
     #[tracing::instrument(skip(self), err)]
     async fn copy_object(&self, source_key: &str, destination_key: &str) -> anyhow::Result<()> {
-        if macro_aws_config::is_local_aws() {
+        if macro_aws_config::is_local_aws() && !macro_aws_config::has_s3_endpoint_override() {
             return Ok(());
         }
 
@@ -123,7 +149,7 @@ impl PresignedUploadUrlPort for S3UploadUrlAdapter {
 
     #[tracing::instrument(skip(self, bytes), err)]
     async fn upload_snapshot(&self, document_id: &str, bytes: Vec<u8>) -> anyhow::Result<()> {
-        if macro_aws_config::is_local_aws() {
+        if macro_aws_config::is_local_aws() && !macro_aws_config::has_s3_endpoint_override() {
             return Ok(());
         }
 

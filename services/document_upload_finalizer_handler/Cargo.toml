@@ -39,6 +39,9 @@ tracing = { workspace = true }
 urlencoding = { workspace = true }
 workspace-hack = { version = "0.1", path = "../../crates/workspace-hack" }
 
+[dev-dependencies]
+macro_db_migrator = { path = "../../crates/macro_db_migrator" }
+
 [[bin]]
 name = "document_upload_finalizer_local_worker"
 path = "src/bin/local_worker.rs"

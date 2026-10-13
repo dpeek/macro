@@ -17,10 +17,14 @@ pub mod calendar_request_gate;
 /// Access-token adapter for disconnecting an inbox's calendar.
 pub mod calendar_tokens;
 pub mod config;
+/// Provider HTTP client composition shared by the service and workers.
+pub mod mailbox_provider;
 /// Outbound infrastructure adapters for email provider capabilities.
 pub mod outbound;
 pub mod pubsub;
 mod server;
+/// Verifies signed Stalwart mailbox change hints.
+pub mod stalwart_push;
 pub mod util;
 mod utils;
 

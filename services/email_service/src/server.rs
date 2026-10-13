@@ -8,14 +8,15 @@ use crate::api::{
 use crate::calendar_refresh::ConnectionGatewayCalendarRefresh;
 use crate::calendar_request_gate::RedisCalendarRequestGate;
 use crate::calendar_tokens::CalendarTokenProviderAdapter;
+use crate::mailbox_provider;
 use crate::outbound::email_api::{
     EmailServiceTokenSource, GmailApi, RateBudget, RedisProviderRateLimiter,
 };
 use anyhow::Context;
 use calendar_events::{
     domain::{
-        invitations::CalendarInvitationResolver, mutations::CalendarMutationServiceImpl,
-        service::CalendarService,
+        invitations::CalendarInvitationResolver, models::CalendarProvider,
+        mutations::CalendarMutationServiceImpl, service::CalendarService,
     },
     outbound::{google::GoogleCalendarClient, pg::PgCalendarRepository},
 };
@@ -28,7 +29,6 @@ use email::{
     },
     outbound::{EmailPgRepo, GmailTokenProviderImpl},
 };
-use email_api_client::GmailApiClientRepository;
 use entity_access::{domain::service::EntityAccessServiceImpl, outbound::PgAccessRepository};
 use frecency::{domain::services::FrecencyQueryServiceImpl, outbound::postgres::FrecencyPgStorage};
 use macro_auth::middleware::decode_jwt::JwtValidationArgs;
@@ -65,6 +65,12 @@ pub async fn run() -> anyhow::Result<()> {
         .resolve_remote_secrets(env, &secretsmanager_client)
         .await
         .context("expected to be able to resolve config secrets")?;
+    let stalwart_issuer = macro_env_var::optional_read_env_var("FOG_STALWART_OAUTH_ISSUER")?;
+    let calendar_provider = if stalwart_issuer.is_some() {
+        CalendarProvider::Stalwart
+    } else {
+        CalendarProvider::Google
+    };
 
     // limiting to max of 200 connections (12.5% of macrodb total) in prod.
     let (min_connections, max_connections): (u32, u32) = match config.environment {
@@ -104,8 +110,8 @@ pub async fn run() -> anyhow::Result<()> {
         AuthServiceUrl::new()?.to_string(),
     );
 
-    let gmail_client = gmail_client::GmailClient::new(config.gmail_gcp_queue.as_ref().to_string());
-    let gmail_api_repository = GmailApiClientRepository::new(gmail_client.clone());
+    let gmail_client = mailbox_provider::client(config.gmail_gcp_queue.to_string())?;
+    let gmail_api_repository = mailbox_provider::repository(config.gmail_gcp_queue.to_string())?;
 
     let redis_inner_client = redis::Client::open(config.redis_uri.as_ref())
         .inspect(|client| {
@@ -210,7 +216,10 @@ pub async fn run() -> anyhow::Result<()> {
         redis_conn.clone(),
         auth_service_client.clone(),
     ));
-    let calendar_service = Arc::new(CalendarService::new(PgCalendarRepository::new(db.clone())));
+    let calendar_service = Arc::new(CalendarService::new(PgCalendarRepository::with_provider(
+        db.clone(),
+        calendar_provider,
+    )));
     let connection_gateway_client = connection_gateway_client::client::ConnectionGatewayClient::new(
         config.internal_api_key.to_string(),
         ConnectionGatewayUrl::new()?.to_string(),
@@ -231,9 +240,9 @@ pub async fn run() -> anyhow::Result<()> {
     let api_result = api::setup_and_serve(ApiContext {
         invitation_snapshots: email::outbound::invitation_pg::InvitationPgRepository(db.clone()),
         // calendar_service's sync kill switch rejects RSVP writes itself.
-        invitation_resolver: Arc::new(CalendarInvitationResolver::new(PgCalendarRepository::new(
-            db.clone(),
-        ))),
+        invitation_resolver: Arc::new(CalendarInvitationResolver::new(
+            PgCalendarRepository::with_provider(db.clone(), calendar_provider),
+        )),
         db,
         internal_api_key: config.internal_api_key.clone(),
         config: Arc::new(config),
@@ -255,6 +264,7 @@ pub async fn run() -> anyhow::Result<()> {
         macro_event_broker: Arc::new(macro_event_broker),
         calendar_service,
         calendar_mutation_service,
+        calendar_provider,
     })
     .await;
 

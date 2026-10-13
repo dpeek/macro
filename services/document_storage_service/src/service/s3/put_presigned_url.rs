@@ -16,7 +16,7 @@ pub(in crate::service::s3) async fn put_presigned_url(
     sha: &str,
     content_type: ContentType,
 ) -> anyhow::Result<String> {
-    if cfg!(feature = "local") {
+    if cfg!(feature = "local") && !macro_aws_config::has_s3_endpoint_override() {
         return Ok("fake".to_string());
     }
     // Allows the app 2 minutes to upload the document

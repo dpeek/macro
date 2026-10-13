@@ -41,6 +41,7 @@ struct FakeDocuments<'a> {
     log: &'a Log,
     file_type: Mutex<Option<String>>,
     content: DocumentContent,
+    missing: bool,
 }
 
 impl FakeDocuments<'_> {
@@ -66,7 +67,7 @@ impl DocumentUploadMetadataPort for FakeDocuments<'_> {
         document_id: &str,
     ) -> Result<Option<DocumentBasic>, DocumentError> {
         assert_eq!(document_id, DOCUMENT_ID);
-        Ok(Some(self.document()))
+        Ok((!self.missing).then(|| self.document()))
     }
 }
 
@@ -142,9 +143,13 @@ impl LegacyOfficeUpgradeRepoPort for FakeDocuments<'_> {
     }
 }
 
-struct FakeObjects;
+struct FakeObjects(bool);
 
 impl DocumentObjectReader for FakeObjects {
+    async fn object_exists(&self, _bucket: &str, _key: &str) -> Result<bool, anyhow::Error> {
+        Ok(self.0)
+    }
+
     async fn read_utf8_object(&self, _bucket: &str, _key: &str) -> Result<String, anyhow::Error> {
         Ok("# markdown".to_string())
     }
@@ -203,8 +208,9 @@ async fn handle(file_type: Option<&str>, content: DocumentContent, key: String) 
             log: &log,
             file_type: Mutex::new(file_type.map(str::to_string)),
             content,
+            missing: false,
         },
-        FakeObjects,
+        FakeObjects(true),
         FakeUpgradeStorage { log: &log },
     );
     finalizer
@@ -218,6 +224,59 @@ async fn handle(file_type: Option<&str>, content: DocumentContent, key: String) 
         .await
         .unwrap();
     log.calls()
+}
+
+#[tokio::test]
+async fn object_created_before_metadata_commit_is_retried() {
+    let log = Log::default();
+    let finalizer = DocumentUploadFinalizer::new(
+        FakeDocuments {
+            log: &log,
+            file_type: Mutex::new(Some("pdf".to_string())),
+            content: DocumentContent::pending(),
+            missing: true,
+        },
+        FakeObjects(true),
+        FakeUpgradeStorage { log: &log },
+    );
+    let error = finalizer
+        .handle_object_created(
+            ObjectCreated {
+                bucket: BUCKET.to_string(),
+                key: versioned_key(12),
+            },
+            &NoMarkdown,
+        )
+        .await
+        .unwrap_err();
+    assert!(error.to_string().contains("retrying"));
+    assert!(log.calls().is_empty());
+}
+
+#[tokio::test]
+async fn late_event_after_document_and_object_removal_is_ignored() {
+    let log = Log::default();
+    let finalizer = DocumentUploadFinalizer::new(
+        FakeDocuments {
+            log: &log,
+            file_type: Mutex::new(Some("pdf".to_string())),
+            content: DocumentContent::pending(),
+            missing: true,
+        },
+        FakeObjects(false),
+        FakeUpgradeStorage { log: &log },
+    );
+    finalizer
+        .handle_object_created(
+            ObjectCreated {
+                bucket: BUCKET.to_string(),
+                key: versioned_key(12),
+            },
+            &NoMarkdown,
+        )
+        .await
+        .unwrap();
+    assert!(log.calls().is_empty());
 }
 
 fn versioned_key(version_id: i64) -> String {
@@ -362,4 +421,150 @@ async fn unparseable_keys_are_ignored() {
         let calls = handle(Some("doc"), DocumentContent::pending(), key.clone()).await;
         assert!(calls.is_empty(), "{key}");
     }
+}
+
+struct CaptureMarkdown(Mutex<Vec<String>>);
+
+async fn receive_m5_document_event(
+    sqs: &aws_sdk_sqs::Client,
+    queue_url: &str,
+) -> anyhow::Result<aws_sdk_sqs::types::Message> {
+    for _ in 0..20 {
+        let response = sqs
+            .receive_message()
+            .queue_url(queue_url)
+            .wait_time_seconds(1)
+            .send()
+            .await?;
+        if let Some(message) = response.messages.unwrap_or_default().into_iter().next() {
+            return Ok(message);
+        }
+    }
+    anyhow::bail!("document upload event did not reach fog-aws")
+}
+
+impl MarkdownInitializationPort for CaptureMarkdown {
+    async fn initialize_existing_markdown(
+        &self,
+        _document_id: &str,
+        markdown: &str,
+    ) -> Result<Vec<u8>, DocumentError> {
+        self.0.lock().unwrap().push(markdown.to_string());
+        Ok(Vec::new())
+    }
+}
+
+#[sqlx::test(
+    migrator = "macro_db_migrator::MACRO_DB_MIGRATIONS",
+    fixtures(
+        path = "../../../../crates/documents/fixtures",
+        scripts("documents_test_data")
+    )
+)]
+#[ignore = "requires isolated M5 PostgreSQL and RustFS"]
+async fn m5_document_upload_retries_then_finalizes_once(pool: sqlx::PgPool) -> anyhow::Result<()> {
+    use crate::outbound::{PgDocumentUploadPort, S3DocumentObjectReader};
+    use aws_sdk_s3::primitives::ByteStream;
+    use bots::outbound::pg_bots_repo::PgBotsRepo;
+    use documents::outbound::pg_document_repo::PgDocumentRepo;
+    use entity_registry::OwnerGrantPolicy;
+    use entity_registry_db_utils::OwnedEntityRegistrar;
+    use sqlx::Row;
+
+    let endpoint = std::env::var("FOG_M5_S3_ENDPOINT")?;
+    let fog_aws_endpoint = std::env::var("FOG_AWS_TEST_ENDPOINT")?;
+    let sqs_config = macro_aws_config::local_aws_config(&fog_aws_endpoint).await;
+    let sqs = aws_sdk_sqs::Client::new(&sqs_config);
+    let queue_url = format!("{fog_aws_endpoint}/000000000000/document-upload-finalizer-queue");
+    assert_eq!(std::env::var("AWS_ENDPOINT_URL_S3")?, endpoint);
+    let s3 = macro_aws_config::s3_client().await;
+    let document_id = "01a0914f-1fde-7873-80ba-6eef315d3b51";
+    let key = format!("macro|user@user.com/{document_id}/1");
+    let markdown = "# M5 fresh database upload\n";
+    s3.put_object()
+        .bucket("doc-storage")
+        .key(&key)
+        .body(ByteStream::from(markdown.as_bytes().to_vec()))
+        .send()
+        .await?;
+
+    let registrar = OwnedEntityRegistrar::new(OwnerGrantPolicy::new(PgBotsRepo::new(pool.clone())));
+    let repo = PgDocumentRepo::new(pool.clone(), registrar);
+    let log = Log::default();
+    let finalizer = DocumentUploadFinalizer::new(
+        PgDocumentUploadPort::new(repo),
+        S3DocumentObjectReader::new(s3.clone()),
+        FakeUpgradeStorage { log: &log },
+    );
+    let initializer = CaptureMarkdown(Mutex::new(Vec::new()));
+    let message = receive_m5_document_event(&sqs, &queue_url).await?;
+    let body = message
+        .body()
+        .ok_or_else(|| anyhow::anyhow!("event has no body"))?
+        .to_owned();
+    let events = crate::inbound::s3_notification::object_created_events_from_body(&body)?;
+    assert_eq!(events.len(), 1);
+    let event = events[0].clone();
+    assert_eq!(event.bucket, "doc-storage");
+    assert_eq!(event.key, key);
+    assert!(
+        finalizer
+            .handle_object_created(event.clone(), &initializer)
+            .await
+            .is_err()
+    );
+    sqs.change_message_visibility()
+        .queue_url(&queue_url)
+        .receipt_handle(message.receipt_handle().unwrap())
+        .visibility_timeout(0)
+        .send()
+        .await?;
+
+    sqlx::query(
+        r#"INSERT INTO "Document" (id, name, "fileType", owner, "uploaded", "contentState")
+           VALUES ($1, 'M5 upload', 'md', 'macro|user@user.com', false, 'pending')"#,
+    )
+    .bind(document_id)
+    .execute(&pool)
+    .await?;
+    let redelivery = receive_m5_document_event(&sqs, &queue_url).await?;
+    let redelivered_body = redelivery
+        .body()
+        .ok_or_else(|| anyhow::anyhow!("redelivery has no body"))?;
+    let redelivered =
+        crate::inbound::s3_notification::object_created_events_from_body(redelivered_body)?;
+    assert_eq!(redelivered, vec![event.clone()]);
+    finalizer
+        .handle_object_created(event.clone(), &initializer)
+        .await?;
+    sqs.delete_message()
+        .queue_url(&queue_url)
+        .receipt_handle(redelivery.receipt_handle().unwrap())
+        .send()
+        .await?;
+    sqs.send_message()
+        .queue_url(&queue_url)
+        .message_body(body)
+        .send()
+        .await?;
+    let duplicate = receive_m5_document_event(&sqs, &queue_url).await?;
+    finalizer.handle_object_created(event, &initializer).await?;
+    sqs.delete_message()
+        .queue_url(&queue_url)
+        .receipt_handle(duplicate.receipt_handle().unwrap())
+        .send()
+        .await?;
+
+    let row = sqlx::query(
+        r#"SELECT "uploaded", "contentState", "contentLocation" FROM "Document" WHERE id = $1"#,
+    )
+    .bind(document_id)
+    .fetch_one(&pool)
+    .await?;
+    assert!(row.try_get::<bool, _>("uploaded")?);
+    assert_eq!(row.try_get::<String, _>("contentState")?, "ready");
+    assert_eq!(row.try_get::<String, _>("contentLocation")?, "sync_service");
+    assert_eq!(initializer.0.lock().unwrap().as_slice(), &[markdown]);
+    assert!(log.calls().is_empty());
+    Ok(())
 }

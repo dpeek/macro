@@ -653,6 +653,9 @@ pub async fn run() -> anyhow::Result<()> {
             sqs_client,
             environment: config.environment,
             signup_policy,
+            create_support_channel_on_signup: api::context::CreateSupportChannelOnSignup(
+                config.create_support_channel_on_signup,
+            ),
             rate_limit_service: rate_limit,
             calendar_scope_enabled: config.calendar_scope_enabled,
             account_link_state_key,

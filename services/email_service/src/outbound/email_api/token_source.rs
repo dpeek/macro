@@ -9,13 +9,14 @@ use email_api_client::domain::ports::ProviderTokenSource;
 use models_email::email::service::cache::TokenCacheKey;
 use models_email::email::service::pubsub::LinkManagerMessage;
 use models_email::service::link::Link;
+use redis::AsyncCommands;
 use redis::aio::MultiplexedConnection;
 use sqlx::PgPool;
 use sqs_client::SQS;
 use uuid::Uuid;
 
 /// Token source that resolves linked mailboxes through the email database and
-/// acquires Gmail grants through Redis and the authentication service.
+/// acquires provider access tokens through the authentication service.
 ///
 /// Successful fetches clear stale reauthorization health. Revoked or missing
 /// grants mark the link for reauthorization and enqueue a notification only on
@@ -116,12 +117,15 @@ impl EmailServiceTokenSource {
     }
 
     async fn fetch_token(&self, link: &Link, freshness: TokenFreshness) -> anyhow::Result<String> {
+        if macro_env_var::optional_read_env_var("FOG_STALWART_GMAIL_URL")?.is_some() {
+            return self.fetch_stalwart_token(link, freshness).await;
+        }
+
         let key = TokenCacheKey::new(
             &link.fusionauth_user_id,
             link.email_address.0.as_ref(),
             link.provider.as_str(),
         );
-
         match freshness {
             TokenFreshness::Cached => {
                 google_token::fetch_gmail_access_token(
@@ -142,6 +146,32 @@ impl EmailServiceTokenSource {
         }
     }
 
+    async fn fetch_stalwart_token(
+        &self,
+        link: &Link,
+        freshness: TokenFreshness,
+    ) -> anyhow::Result<String> {
+        let key = format!("fog:stalwart:access:{}", link.id);
+        let mut redis = self.redis_conn.clone();
+        if matches!(freshness, TokenFreshness::Cached) {
+            let cached: Option<String> = redis.get(&key).await?;
+            if let Some(token) = cached {
+                return Ok(token);
+            }
+        }
+        let grant = self
+            .auth_service_client
+            .get_stalwart_access_token(&link.fusionauth_user_id, link.email_address.0.as_ref())
+            .await?;
+        let cache_seconds = grant.expires_in.saturating_sub(60);
+        if cache_seconds > 0 {
+            redis
+                .set_ex::<_, _, ()>(&key, &grant.access_token, cache_seconds)
+                .await?;
+        }
+        Ok(grant.access_token)
+    }
+
     async fn record_token_health(
         &self,
         link: &Link,
@@ -158,7 +188,7 @@ impl EmailServiceTokenSource {
                 tracing::warn!(
                     link_id=%link.id,
                     fusionauth_user_id=%link.fusionauth_user_id,
-                    "Gmail grant no longer yields a token - marking link as needing reauth"
+                    "Mailbox grant no longer yields a token - marking link as needing reauth"
                 );
                 match email_db_client::links::update::set_link_needs_reauth(&self.db, link.id).await
                 {

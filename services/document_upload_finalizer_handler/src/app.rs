@@ -87,8 +87,18 @@ where
 
         let Some(document_context) = self.document_port.get_basic_document(document_id).await?
         else {
-            tracing::warn!(%document_id, key=%event.key, "document storage object exists but document metadata does not");
-            return Ok(());
+            if !self
+                .object_reader
+                .object_exists(&event.bucket, &event.key)
+                .await?
+            {
+                tracing::info!(%document_id, key=%event.key, "skipping late event after object removal");
+                return Ok(());
+            }
+            anyhow::bail!(
+                "document storage object {} exists before metadata for document {document_id}; retrying",
+                event.key
+            );
         };
 
         let markdown = if matches!(document_context.try_file_type(), Some(FileType::Md)) {

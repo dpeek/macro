@@ -266,3 +266,7 @@ fn temp_preview_path(record_index: usize) -> PathBuf {
         std::process::id()
     ))
 }
+
+#[cfg(test)]
+#[path = "event/fog_rustfs_contract.rs"]
+mod fog_rustfs_contract;

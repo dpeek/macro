@@ -6,6 +6,7 @@ mod team_sync_coverage;
 use crate::domain::models::{
     GOOGLE_CALENDAR_SCOPES, GoogleCalendarSyncSnapshot, GoogleEventSource, GoogleWatchChannel,
     OccurrenceException, OccurrenceListing, REMINDER_METHOD_EMAIL, REMINDER_METHOD_POPUP,
+    STALWART_CALENDARS_SCOPE,
 };
 use crate::domain::ports::GoogleCalendarSyncRepository;
 use crate::domain::service::{CalendarService, GoogleCalendarBackfillFailureService};
@@ -14,6 +15,36 @@ use macro_db_migrator::MACRO_DB_MIGRATIONS;
 
 fn complete_grant() -> GoogleScopeSet {
     GoogleScopeSet::parse(&GOOGLE_CALENDAR_SCOPES.join(" "))
+}
+
+#[sqlx::test(migrator = "MACRO_DB_MIGRATIONS")]
+async fn stalwart_scope_creates_a_poll_job_without_satisfying_google_fence(pool: PgPool) {
+    let link_id = insert_link(&pool, "macro|stalwart-calendar@example.com").await;
+    let stalwart = PgCalendarRepository::with_provider(pool.clone(), CalendarProvider::Stalwart);
+    let granted = stalwart
+        .apply_google_grant(
+            link_id,
+            GoogleScopeSet::parse(STALWART_CALENDARS_SCOPE),
+            CalendarGrantIntent::Incidental,
+        )
+        .await
+        .unwrap();
+    assert_eq!(granted.jobs.len(), 1);
+    let key = CalendarBackfillJobKey {
+        job_id: granted.jobs[0].id,
+        email_link_id: link_id,
+    };
+    assert!(matches!(
+        PgCalendarRepository::new(pool.clone())
+            .claim_google_backfill(key)
+            .await
+            .unwrap(),
+        CalendarBackfillClaim::Busy
+    ));
+    assert!(matches!(
+        stalwart.claim_google_backfill(key).await.unwrap(),
+        CalendarBackfillClaim::Claimed { .. }
+    ));
 }
 
 async fn persist_complete_grant(pool: &PgPool, link_id: Uuid, grant_version: i64) {

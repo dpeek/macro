@@ -39,6 +39,17 @@ fn config_values() -> serde_json::Value {
 }
 
 #[test]
+fn support_channel_creation_defaults_on_and_can_be_disabled() {
+    let default_config: Config = serde_json::from_value(config_values()).unwrap();
+    assert!(default_config.create_support_channel_on_signup);
+
+    let mut values = config_values();
+    values["CREATE_SUPPORT_CHANNEL_ON_SIGNUP"] = serde_json::json!(false);
+    let disabled_config: Config = serde_json::from_value(values).unwrap();
+    assert!(!disabled_config.create_support_channel_on_signup);
+}
+
+#[test]
 fn ai_pricing_is_mandatory_and_validated() {
     use ai_billing::PlanTier;
 

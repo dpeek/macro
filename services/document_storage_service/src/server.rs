@@ -504,11 +504,16 @@ pub async fn run() -> anyhow::Result<()> {
         browser_cache_expiry_seconds: config
             .document_storage_service_presigned_url_browser_cache_expiry_seconds,
     };
-    let s3_upload_adapter = S3UploadUrlAdapter::new(
+    let mut s3_upload_adapter = S3UploadUrlAdapter::new(
         macro_aws_config::s3_client().await,
         config.document_storage_bucket.as_ref(),
         config.docx_document_upload_bucket.as_ref(),
     );
+    if macro_aws_config::has_s3_endpoint_override() {
+        s3_upload_adapter = s3_upload_adapter.with_s3_read_urls(std::time::Duration::from_secs(
+            config.document_storage_service_presigned_url_expiry_seconds,
+        ));
+    }
     let markdown_initializer =
         documents_hex::outbound::markdown_init::LexicalSyncMarkdownInitializer::detached(
             lexical_client.as_ref().clone(),

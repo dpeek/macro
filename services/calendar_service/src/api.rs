@@ -1,5 +1,6 @@
 use anyhow::Context;
 use axum::Router;
+use calendar_events::domain::models::CalendarProvider;
 use calendar_events::inbound::mutation_router::{
     CalendarMutationRouterState, calendar_mutation_router,
 };
@@ -69,23 +70,28 @@ fn api_router(state: ApiContext) -> Router<ApiContext> {
     );
     // Calendar mutations follow the calendar sync kill switch: without sync a
     // provider write would never be reflected locally.
-    if state.config.calendar_sync_enabled {
-        calendar_watch::router()
-            .merge(team_settings)
-            .nest(
-                "/scheduling",
-                calendar_scheduling::inbound::router::router(
-                    calendar_scheduling::inbound::router::RouterState::new(
-                        state.scheduling_service.clone(),
-                        state.authorization_state.clone(),
-                    ),
+    let mutations = if state.config.calendar_sync_enabled {
+        calendar_mutation_router(CalendarMutationRouterState::new(
+            state.calendar_mutation_service.clone(),
+            state.authorization_state.clone(),
+        ))
+        .nest(
+            "/scheduling",
+            calendar_scheduling::inbound::router::router(
+                calendar_scheduling::inbound::router::RouterState::new(
+                    state.scheduling_service.clone(),
+                    state.authorization_state.clone(),
                 ),
-            )
-            .merge(calendar_mutation_router(CalendarMutationRouterState::new(
-                state.calendar_mutation_service.clone(),
-                state.authorization_state.clone(),
-            )))
+            ),
+        )
     } else {
-        calendar_watch::router().merge(team_settings)
+        Router::new()
+    };
+    if state.calendar_provider == CalendarProvider::Google {
+        team_settings
+            .merge(calendar_watch::router())
+            .merge(mutations)
+    } else {
+        team_settings.merge(mutations)
     }
 }

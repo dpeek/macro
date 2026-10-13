@@ -23,6 +23,7 @@ use crate::ports::{DocumentObjectReader, DocumentUploadMetadataPort};
 /// S3-backed object reader for uploaded document bytes.
 #[derive(Clone)]
 pub struct S3DocumentObjectReader {
+    s3_client: aws_sdk_s3::Client,
     utf8_reader: S3Utf8ObjectReader,
 }
 
@@ -30,12 +31,28 @@ impl S3DocumentObjectReader {
     /// Construct an S3 object reader.
     pub fn new(s3_client: aws_sdk_s3::Client) -> Self {
         Self {
-            utf8_reader: S3Utf8ObjectReader::new(s3_client),
+            utf8_reader: S3Utf8ObjectReader::new(s3_client.clone()),
+            s3_client,
         }
     }
 }
 
 impl DocumentObjectReader for S3DocumentObjectReader {
+    async fn object_exists(&self, bucket: &str, key: &str) -> Result<bool, anyhow::Error> {
+        match self
+            .s3_client
+            .head_object()
+            .bucket(bucket)
+            .key(key)
+            .send()
+            .await
+        {
+            Ok(_) => Ok(true),
+            Err(error) if error.as_service_error().is_some_and(|e| e.is_not_found()) => Ok(false),
+            Err(error) => Err(error.into()),
+        }
+    }
+
     async fn read_utf8_object(&self, bucket: &str, key: &str) -> Result<String, anyhow::Error> {
         self.utf8_reader
             .read_utf8(bucket, key)

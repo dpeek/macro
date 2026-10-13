@@ -1,0 +1,14 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "INSERT INTO \"RolesOnUsers\" (\"userId\", \"roleId\")\n           VALUES ($1, 'corporate') ON CONFLICT DO NOTHING",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "59ab8ba1587e1a1b1938cdcf71ab87194266f2bbc35c28a06f47837342b97154"
+}

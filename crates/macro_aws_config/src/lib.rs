@@ -3,7 +3,7 @@
 //! This crate creates a standard way to make AWS configs.
 
 pub use aws_config::SdkConfig;
-use macro_env_var::maybe_env_var;
+use macro_env_var::{env_var, maybe_env_var};
 
 maybe_env_var! {
     #[derive(Clone)]
@@ -16,13 +16,48 @@ maybe_env_var! {
     pub struct LocalAwsPublicUrl;
 }
 
+maybe_env_var! {
+    /// S3-compatible endpoint used independently of the local SQS/DynamoDB endpoint.
+    #[derive(Clone)]
+    pub struct AwsEndpointUrlS3;
+}
+
+env_var! {
+    /// Access key required when using a separate S3-compatible endpoint.
+    pub struct AwsAccessKeyId;
+}
+
+env_var! {
+    /// Secret key required when using a separate S3-compatible endpoint.
+    pub struct AwsSecretAccessKey;
+}
+
 /// Creates an S3 client
 #[cfg(feature = "s3")]
 pub async fn s3_client() -> aws_sdk_s3::Client {
-    let s3_config = aws_sdk_s3::config::Builder::from(&get_macro_aws_config().await)
-        .force_path_style(is_local_aws())
-        .build();
-    aws_sdk_s3::Client::from_conf(s3_config)
+    let separate_endpoint = AwsEndpointUrlS3::new().is_some();
+    let base = if separate_endpoint {
+        // Keep explicit credentials mandatory so the SDK cannot fall back to
+        // a developer's shared AWS profile or instance identity for RustFS.
+        let _ = (
+            AwsAccessKeyId::unwrap_new(),
+            AwsSecretAccessKey::unwrap_new(),
+        );
+        // The common local config sets an explicit endpoint and dummy credentials
+        // for SQS/DynamoDB/KMS. Let the SDK resolve its standard S3 endpoint and
+        // AWS credentials from the environment instead.
+        aws_config::defaults(aws_config::BehaviorVersion::latest())
+            .region("us-east-1")
+            .load()
+            .await
+    } else {
+        get_macro_aws_config().await
+    };
+    aws_sdk_s3::Client::from_conf(
+        aws_sdk_s3::config::Builder::from(&base)
+            .force_path_style(separate_endpoint || is_local_aws())
+            .build(),
+    )
 }
 
 /// Creates an SQS client
@@ -61,6 +96,11 @@ pub fn is_local_aws() -> bool {
     LocalAwsUrl::new().is_some()
 }
 
+/// Returns whether S3 has an endpoint and credentials separate from the default AWS config.
+pub fn has_s3_endpoint_override() -> bool {
+    AwsEndpointUrlS3::new().is_some()
+}
+
 /// internal method to transform the local aws url
 fn transform_local_url(url: &str, public_url: Option<&str>) -> String {
     // NOTE: it is ok to use expect as this is only run locally
@@ -96,6 +136,9 @@ fn transform_local_url(url: &str, public_url: Option<&str>) -> String {
 /// `LOCAL_AWS_PUBLIC_URL`, when set by the local stack, supplies the browser-facing
 /// endpoint so named instances can use their HTTPS storage proxy.
 pub fn transform_aws_url(url: &str) -> String {
+    if AwsEndpointUrlS3::new().is_some() {
+        return url.to_string();
+    }
     if is_local_aws() {
         let public_url = LocalAwsPublicUrl::new();
         return transform_local_url(url, public_url.as_ref().map(|url| url.as_ref()));
@@ -139,6 +182,9 @@ fn transform_internal_url(url: &str, local_aws_url: &str, public_url: Option<&st
 /// origin and proxy prefix so container clients reach LocalStack directly.
 /// Legacy localhost URLs are also supported. No-op outside local AWS.
 pub fn transform_aws_url_for_internal_fetch(url: &str) -> String {
+    if AwsEndpointUrlS3::new().is_some() {
+        return url.to_string();
+    }
     if let Some(local_aws_url) = LocalAwsUrl::new() {
         let public_url = LocalAwsPublicUrl::new();
         return transform_internal_url(
