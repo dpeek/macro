@@ -13,18 +13,18 @@ impl MailboxSubscriptionClient for GmailApiClientRepository {
         access_token: &AccessToken,
     ) -> Result<ProviderSubscription, EmailApiError> {
         let token = access_token.expose_secret();
-        let watch = match self.client.register_watch(token).await {
+        let watch = match self.client_for(access_token)?.register_watch(token).await {
             Ok(watch) => watch,
             Err(error) if is_watch_conflict(&error) => {
                 tracing::warn!(
                     error = %error,
                     "Gmail watch conflict; stopping the existing watch and retrying once"
                 );
-                self.client
+                self.client_for(access_token)?
                     .stop_watch(token)
                     .await
                     .map_err(map_gmail_error)?;
-                self.client
+                self.client_for(access_token)?
                     .register_watch(token)
                     .await
                     .map_err(map_watch_error)?
@@ -53,7 +53,7 @@ impl MailboxSubscriptionClient for GmailApiClientRepository {
     }
 
     async fn unsubscribe(&self, access_token: &AccessToken) -> Result<(), EmailApiError> {
-        self.client
+        self.client_for(access_token)?
             .stop_watch(access_token.expose_secret())
             .await
             .map_err(map_gmail_error)

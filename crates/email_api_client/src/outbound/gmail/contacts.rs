@@ -16,7 +16,7 @@ impl MailboxContactsClient for GmailApiClientRepository {
         link_id: Uuid,
     ) -> Result<Contact, EmailApiError> {
         let person = self
-            .client
+            .client_for(access_token)?
             .get_self_contact(access_token.expose_secret())
             .await
             .map_err(map_gmail_error)?;
@@ -30,7 +30,7 @@ impl MailboxContactsClient for GmailApiClientRepository {
         sync_token: Option<&str>,
     ) -> Result<ContactList, EmailApiError> {
         let (people, next_sync_token) = self
-            .client
+            .client_for(access_token)?
             .get_contacts(access_token.expose_secret(), sync_token)
             .await
             .map_err(map_contacts_error)?;
@@ -44,7 +44,7 @@ impl MailboxContactsClient for GmailApiClientRepository {
         sync_token: Option<&str>,
     ) -> Result<ContactList, EmailApiError> {
         let (people, next_sync_token) = self
-            .client
+            .client_for(access_token)?
             .get_other_contacts(access_token.expose_secret(), sync_token)
             .await
             .map_err(map_contacts_error)?;

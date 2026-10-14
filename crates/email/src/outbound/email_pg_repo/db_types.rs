@@ -153,6 +153,7 @@ impl ThreadPreviewCursorDbRow {
 #[dg(forward = crate::domain::models::UserProvider)]
 pub enum DbUserProvider {
     Gmail,
+    Stalwart,
 }
 
 #[derive(Debug, Clone)]

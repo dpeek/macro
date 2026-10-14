@@ -110,7 +110,7 @@ pub async fn run() -> anyhow::Result<()> {
         AuthServiceUrl::new()?.to_string(),
     );
 
-    let gmail_client = mailbox_provider::client(config.gmail_gcp_queue.to_string())?;
+    let gmail_client = mailbox_provider::client(config.gmail_gcp_queue.to_string());
     let gmail_api_repository = mailbox_provider::repository(config.gmail_gcp_queue.to_string())?;
 
     let redis_inner_client = redis::Client::open(config.redis_uri.as_ref())

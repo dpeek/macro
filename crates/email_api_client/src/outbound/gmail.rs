@@ -14,7 +14,9 @@ mod sync;
 #[cfg(test)]
 mod test;
 
+use crate::domain::models::AccessToken;
 use gmail_client::{GmailApiHttpError, GmailClient};
+use models_email::email::service::link::UserProvider;
 use models_email::gmail::inbox_sync::{
     GoogleJwtClaims, GooglePublicKeys, JwtVerificationError, KeyMap,
 };
@@ -31,12 +33,35 @@ const WATCH_CONFLICT_BODY_FRAGMENT: &str = "push notification client allowed";
 #[derive(Clone, Debug)]
 pub struct GmailApiClientRepository {
     client: GmailClient,
+    stalwart_client: Option<GmailClient>,
 }
 
 impl GmailApiClientRepository {
     /// Creates a repository from an existing Gmail wire client.
     pub fn new(client: GmailClient) -> Self {
-        Self { client }
+        Self {
+            client,
+            stalwart_client: None,
+        }
+    }
+
+    /// Adds the Stalwart Gmail-compatible endpoint for Stalwart links.
+    pub fn with_stalwart_client(mut self, client: GmailClient) -> Self {
+        self.stalwart_client = Some(client);
+        self
+    }
+
+    fn client_for(&self, token: &AccessToken) -> Result<&GmailClient, EmailApiError> {
+        match token.provider() {
+            UserProvider::Gmail => Ok(&self.client),
+            UserProvider::Stalwart => {
+                self.stalwart_client
+                    .as_ref()
+                    .ok_or_else(|| EmailApiError::Permanent {
+                        message: "Stalwart mailbox endpoint is not configured".to_string(),
+                    })
+            }
+        }
     }
 
     /// Creates a repository configured to publish watch events to `subscription_topic`.

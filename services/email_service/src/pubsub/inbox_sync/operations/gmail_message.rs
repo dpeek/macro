@@ -10,7 +10,7 @@ use models_email::gmail::inbox_sync::{
     DeleteMessagePayload, GmailMessagePayload, InboxSyncOperation, InboxSyncPubsubMessage,
     UpdateLabelsPayload, UpsertMessagePayload,
 };
-use models_email::service::link::{Link, UserProvider};
+use models_email::service::link::Link;
 use models_email::service::pubsub::{DetailedError, FailureReason, ProcessingError};
 use sqlx::PgPool;
 use std::result;
@@ -30,7 +30,7 @@ pub async fn gmail_message(
     let db_history_id = email_db_client::histories::fetch_history_id_for_link(
         &ctx.db,
         link.email_address.0.as_ref(),
-        UserProvider::Gmail,
+        link.provider,
     )
     .await
     .map_err(|e| {

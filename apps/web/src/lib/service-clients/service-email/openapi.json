@@ -6220,7 +6220,7 @@
       },
       "UserProvider": {
         "type": "string",
-        "enum": ["GMAIL"]
+        "enum": ["GMAIL", "STALWART"]
       },
       "Value": {}
     }

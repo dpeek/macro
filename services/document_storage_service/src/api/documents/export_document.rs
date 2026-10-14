@@ -206,7 +206,9 @@ async fn sign_docx_url(state: &ApiContext, key: &str) -> anyhow::Result<String> 
             .get_document_storage_presigned_url(
                 key,
                 std::time::Duration::from_secs(
-                    state.config.document_storage_service_presigned_url_expiry_seconds,
+                    state
+                        .config
+                        .document_storage_service_presigned_url_expiry_seconds,
                 ),
             )
             .await;

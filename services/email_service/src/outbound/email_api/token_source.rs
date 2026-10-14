@@ -94,7 +94,7 @@ impl ProviderTokenSource for EmailServiceTokenSource {
         // set needs_reauth nor enqueue a reauth notification.
         self.fetch_token(link, freshness)
             .await
-            .map(AccessToken::new)
+            .map(|token| AccessToken::for_provider(token, link.provider))
             .map_err(map_token_acquisition_error)
     }
 }
@@ -112,12 +112,12 @@ impl EmailServiceTokenSource {
             .await;
 
         result
-            .map(AccessToken::new)
+            .map(|token| AccessToken::for_provider(token, link.provider))
             .map_err(map_token_acquisition_error)
     }
 
     async fn fetch_token(&self, link: &Link, freshness: TokenFreshness) -> anyhow::Result<String> {
-        if macro_env_var::optional_read_env_var("FOG_STALWART_GMAIL_URL")?.is_some() {
+        if link.provider == models_email::service::link::UserProvider::Stalwart {
             return self.fetch_stalwart_token(link, freshness).await;
         }
 

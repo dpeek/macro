@@ -61,7 +61,7 @@ pub async fn webhook(
     let link_id = sqlx::query_scalar::<_, Uuid>(
         "SELECT id FROM email_links \
          WHERE LOWER(email_address) = LOWER($1) \
-         AND provider = 'GMAIL' AND is_sync_active = TRUE \
+         AND provider = 'STALWART' AND is_sync_active = TRUE \
          ORDER BY created_at DESC LIMIT 1",
     )
     .bind(&req.message.data.email_address)
@@ -122,7 +122,7 @@ pub async fn start_automatic(
         )
     })?;
     let existing_link = existing.iter().find(|link| {
-        link.provider == UserProvider::Gmail
+        link.provider == UserProvider::Stalwart
             && link.email_address.0.as_ref().eq_ignore_ascii_case(email)
             && link.is_sync_active
     });
@@ -163,12 +163,12 @@ pub async fn start_automatic(
         .map_err(|_| failure(StatusCode::BAD_REQUEST, "Invalid mailbox address"))?;
     let now = Utc::now();
     let link = Link {
-        id: Uuid::new_v4(),
+        id: Uuid::now_v7(),
         is_primary: Link::derive_is_primary(&macro_id, &email_address),
         macro_id,
         fusionauth_user_id: user.user_context.fusion_user_id.clone(),
         email_address,
-        provider: UserProvider::Gmail,
+        provider: UserProvider::Stalwart,
         is_sync_active: false,
         needs_reauth: false,
         last_sync_error_at: None,

@@ -35,6 +35,7 @@ export function CalendarPermissionPrompt() {
       calendarUiEnabled() && promptAllowed()
         ? (linksQuery.data?.links ?? []).filter(
             (link) =>
+              link.provider === 'GMAIL' &&
               link.needs_calendar_permission &&
               !link.needs_reauth &&
               !link.calendar_disabled

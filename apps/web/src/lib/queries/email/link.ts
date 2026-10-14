@@ -12,6 +12,8 @@ import { queryReadyGate } from '../gate';
 import { type MutationCallbacks, withCallbacks } from '../utils';
 import { emailKeys } from './keys';
 
+export type EmailLink = ListLinksResponse['links'][number];
+
 const LINK_STALE_TIME = 5 * 60 * 1000;
 
 const HEALTH_PROBE_STALE_TIME = 15 * 60 * 1000;
@@ -19,7 +21,7 @@ const HEALTH_PROBE_STALE_TIME = 15 * 60 * 1000;
 const queryEnabled = () => true;
 
 /**
- * Asks the server to probe each linked inbox's grant against Google and record its
+ * Asks the server to probe each linked inbox's provider grant and record its
  * health, so a grant that died while the user was away surfaces soon after they return
  * rather than waiting on the daily refresh. Runs on mount and on window focus, throttled
  * to once per stale-time window (the server also throttles per inbox). Fire-and-forget:

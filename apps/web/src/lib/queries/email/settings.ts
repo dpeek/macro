@@ -16,6 +16,8 @@ import { emailKeys } from './keys';
 import { useNonPrimaryEmailLinkIdHeader } from './link';
 import { refreshMailAccounts } from './mail-accounts';
 
+export { SIGNATURE_IMAGES_UNRESOLVED_CODE };
+
 type UpdateSettingsVars = { linkId: string; settings: Settings };
 
 type UpdateSettingsCallbacks = MutationCallbacks<

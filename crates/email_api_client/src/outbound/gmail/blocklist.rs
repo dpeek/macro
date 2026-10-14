@@ -17,7 +17,7 @@ impl MailboxBlocklistClient for GmailApiClientRepository {
     ) -> Result<(), EmailApiError> {
         let token = access_token.expose_secret();
         let filters = self
-            .client
+            .client_for(access_token)?
             .list_filters(token)
             .await
             .map_err(map_gmail_error)?;
@@ -25,7 +25,7 @@ impl MailboxBlocklistClient for GmailApiClientRepository {
             return Ok(());
         }
 
-        self.client
+        self.client_for(access_token)?
             .create_filter(token, block_filter(email_address))
             .await
             .map_err(map_gmail_error)?;
@@ -39,7 +39,7 @@ impl MailboxBlocklistClient for GmailApiClientRepository {
     ) -> Result<(), EmailApiError> {
         let token = access_token.expose_secret();
         let filters = self
-            .client
+            .client_for(access_token)?
             .list_filters(token)
             .await
             .map_err(map_gmail_error)?;
@@ -54,7 +54,7 @@ impl MailboxBlocklistClient for GmailApiClientRepository {
                 });
             };
 
-            self.client
+            self.client_for(access_token)?
                 .delete_filter(token, filter_id)
                 .await
                 .map_err(map_gmail_error)?;
@@ -72,7 +72,7 @@ impl MailboxBlocklistClient for GmailApiClientRepository {
         access_token: &AccessToken,
     ) -> Result<Vec<String>, EmailApiError> {
         let filters = self
-            .client
+            .client_for(access_token)?
             .list_filters(access_token.expose_secret())
             .await
             .map_err(map_gmail_error)?;

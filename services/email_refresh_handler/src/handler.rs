@@ -14,6 +14,7 @@ use sqlx::{Pool, Postgres, Type};
 #[sqlx(type_name = "email_user_provider_enum", rename_all = "UPPERCASE")]
 pub enum DbUserProvider {
     Gmail,
+    Stalwart,
 }
 
 #[tracing::instrument(skip(ctx, _event))]
@@ -47,11 +48,12 @@ async fn send_health_check_messages(ctx: &context::Context) -> Result<(), Error>
     // Bucket on hours since the epoch rather than hour-of-day, so every bucket stays
     // reachable even when the interval exceeds 24 hours.
     let bucket = (now.timestamp().div_euclid(3600) % i64::from(interval_hours)) as i32;
-    let provider_filter = DbUserProvider::Gmail;
 
-    // uses the index idx_links_active_provider_hash_bucket
-    let link_ids = sqlx::query_scalar!(
-        r#"
+    // Keep the provider predicate compatible with the indexed, cached query.
+    let mut link_ids = Vec::new();
+    for provider_filter in [DbUserProvider::Gmail, DbUserProvider::Stalwart] {
+        let provider_link_ids = sqlx::query_scalar!(
+            r#"
         SELECT
             id as "link_id"
         FROM email_links
@@ -60,16 +62,18 @@ async fn send_health_check_messages(ctx: &context::Context) -> Result<(), Error>
             AND provider = $1
             AND (abs(hashtext(id::text)::bigint) % $2::int4) = $3::int4
         "#,
-        provider_filter as _,
-        interval_hours,
-        bucket
-    )
-    .fetch_all(&ctx.db)
-    .await
-    .unwrap_or_else(|e| {
-        tracing::error!(error = ?e, "Error fetching links for health check");
-        Vec::new()
-    });
+            provider_filter as _,
+            interval_hours,
+            bucket
+        )
+        .fetch_all(&ctx.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(error = ?e, "Error fetching links for health check");
+            Vec::new()
+        });
+        link_ids.extend(provider_link_ids);
+    }
 
     if !link_ids.is_empty() {
         tracing::info!(
@@ -96,11 +100,11 @@ async fn send_health_check_messages(ctx: &context::Context) -> Result<(), Error>
 /// send refresh notifications for active links
 async fn send_refresh_messages(ctx: &context::Context) -> Result<(), Error> {
     let current_hour = chrono::Utc::now().hour() as i32;
-    let provider_filter = DbUserProvider::Gmail;
 
-    // uses the index idx_links_active_provider_hash_bucket
-    let link_ids = sqlx::query_scalar!(
-        r#"
+    let mut link_ids = Vec::new();
+    for provider_filter in [DbUserProvider::Gmail, DbUserProvider::Stalwart] {
+        let provider_link_ids = sqlx::query_scalar!(
+            r#"
         SELECT
             id as "link_id"
         FROM email_links
@@ -109,15 +113,17 @@ async fn send_refresh_messages(ctx: &context::Context) -> Result<(), Error> {
             AND provider = $1
             AND (abs(hashtext(id::text)) % 24) = $2
         "#,
-        provider_filter as _,
-        current_hour
-    )
-    .fetch_all(&ctx.db)
-    .await
-    .unwrap_or_else(|e| {
-        tracing::error!(error = ?e, "Error fetching links for refresh");
-        Vec::new()
-    });
+            provider_filter as _,
+            current_hour
+        )
+        .fetch_all(&ctx.db)
+        .await
+        .unwrap_or_else(|e| {
+            tracing::error!(error = ?e, "Error fetching links for refresh");
+            Vec::new()
+        });
+        link_ids.extend(provider_link_ids);
+    }
 
     if !link_ids.is_empty() {
         tracing::info!(

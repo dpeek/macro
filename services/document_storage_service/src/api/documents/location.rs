@@ -137,7 +137,9 @@ async fn sign_document_key(
             .get_document_storage_presigned_url(
                 key,
                 std::time::Duration::from_secs(
-                    state.config.document_storage_service_presigned_url_expiry_seconds,
+                    state
+                        .config
+                        .document_storage_service_presigned_url_expiry_seconds,
                 ),
             )
             .await?;
@@ -243,7 +245,9 @@ async fn get_docx_urls(
                     .get_document_storage_presigned_url(
                         sha,
                         std::time::Duration::from_secs(
-                            state.config.document_storage_service_presigned_url_expiry_seconds,
+                            state
+                                .config
+                                .document_storage_service_presigned_url_expiry_seconds,
                         ),
                     )
                     .await?,

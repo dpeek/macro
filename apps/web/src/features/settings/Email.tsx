@@ -5,6 +5,7 @@ import {
 import { useCalendarUiFlag } from '@app/features/calendar/hooks/use-calendar-ui-flag';
 import { openAddInboxDialog } from '@app/features/inbox/AddInboxDialog';
 import { useFeatureFlag } from '@app/lib/analytics/posthog';
+import { redirectToEmailAuth } from '@core/auth/email';
 import { toast } from '@core/component/Toast/Toast';
 import {
   ENABLE_INBOX_RESYNC,
@@ -21,7 +22,7 @@ import {
   calendarConsentScopes,
   reconnectScopes,
 } from '@core/email-link/consent';
-import GmailIcon from '@icon/mcp-gmail.svg';
+import MailIcon from '@icon/macro-mail.svg';
 import ArrowsClockwiseIcon from '@phosphor-icons/core/regular/arrows-clockwise.svg?component-solid';
 import CalendarSlashIcon from '@phosphor-icons/core/regular/calendar-slash.svg?component-solid';
 import PlusIcon from '@phosphor-icons/core/regular/plus.svg?component-solid';
@@ -51,7 +52,7 @@ import {
 import { clearSignatureState } from './SignatureSection';
 
 /**
- * Gmail integration as a single Connected-accounts card: a header row with the
+ * Email integration as a single Connected-accounts card: a header row with the
  * connection state/action, and — once connected — a row per inbox plus add /
  * disconnect controls. All the inbox + backfill logic is unchanged; only the
  * surrounding chrome moved from a standalone panel to a shared card.
@@ -157,8 +158,8 @@ export function EmailCard() {
     <>
       <SettingsCard>
         <IntegrationRow
-          icon={<GmailIcon />}
-          title="Gmail"
+          icon={<MailIcon />}
+          title="Email accounts"
           description="Read, organize, and act on your email."
           status={
             <Show when={emailActive()}>
@@ -185,12 +186,16 @@ export function EmailCard() {
                 hasCompletedBackfill={hasCompletedBackfill(primary().id)}
                 resyncing={resyncingIds().has(primary().id)}
                 onResync={() => handleResyncInbox(primary().id)}
-                onReconnect={() =>
+                onReconnect={() => {
+                  if (primary().provider === 'STALWART') {
+                    redirectToEmailAuth({ idpName: 'stalwart' });
+                    return;
+                  }
                   void startAddInbox({
                     scopes: reconnectScopes(primary()),
                     emailAddress: primary().email_address,
-                  })
-                }
+                  });
+                }}
                 onEnableCalendar={() =>
                   void startAddInbox({
                     scopes: calendarConsentScopes(primary()),
@@ -228,12 +233,16 @@ export function EmailCard() {
                 hasCompletedBackfill={hasCompletedBackfill(link.id)}
                 resyncing={resyncingIds().has(link.id)}
                 onResync={() => handleResyncInbox(link.id)}
-                onReconnect={() =>
+                onReconnect={() => {
+                  if (link.provider === 'STALWART') {
+                    redirectToEmailAuth({ idpName: 'stalwart' });
+                    return;
+                  }
                   void startAddInbox({
                     scopes: reconnectScopes(link),
                     emailAddress: link.email_address,
-                  })
-                }
+                  });
+                }}
                 onEnableCalendar={() =>
                   void startAddInbox({
                     scopes: calendarConsentScopes(link),
@@ -444,6 +453,9 @@ function InboxRow(props: {
             <span class="ph-no-capture text-sm truncate">
               {props.link.email_address}
             </span>
+            <Chip
+              label={props.link.provider === 'STALWART' ? 'Stalwart' : 'Gmail'}
+            />
             <Show when={props.isPrimary}>
               <Chip label="Primary" />
             </Show>
@@ -508,7 +520,11 @@ function InboxRow(props: {
           {/* Explicitly enabling calendar also restores mailbox access when
               the Google grant has expired. */}
           <Show
-            when={calendarUiEnabled() && props.link.needs_calendar_permission}
+            when={
+              calendarUiEnabled() &&
+              props.link.provider === 'GMAIL' &&
+              props.link.needs_calendar_permission
+            }
           >
             <Button
               variant="outline"
@@ -528,6 +544,7 @@ function InboxRow(props: {
           <Show
             when={
               calendarUiEnabled() &&
+              props.link.provider === 'GMAIL' &&
               props.isOwn &&
               (!props.link.needs_calendar_permission ||
                 props.link.has_calendar_data)

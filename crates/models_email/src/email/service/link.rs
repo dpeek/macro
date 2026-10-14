@@ -38,12 +38,14 @@ impl Link {
 #[derive(Debug, Clone, Copy, ToSchema, Serialize, Deserialize, PartialEq, Eq)]
 pub enum UserProvider {
     Gmail,
+    Stalwart,
 }
 
 impl UserProvider {
     pub fn as_str(&self) -> &'static str {
         match self {
             UserProvider::Gmail => "GMAIL",
+            UserProvider::Stalwart => "STALWART",
         }
     }
 }
